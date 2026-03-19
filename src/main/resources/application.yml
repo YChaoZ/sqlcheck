@@ -1,0 +1,9 @@
+# SQL/Apollo配置检查工具配置
+
+sqlcheck:
+  # SQL文件目录
+  sql-dir: sql
+  # Apollo配置文件目录
+  apollo-dir: apollo
+  # 输出报告目录
+  output-dir: output

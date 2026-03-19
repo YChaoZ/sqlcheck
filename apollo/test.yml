@@ -1,0 +1,13 @@
+app:
+  id: demo-app
+app.id: duplicate-demo
+feature:
+  enabled: true
+feature: false
+bad:
+  1name: invalid-segment
+spring:
+  datasource.url: jdbc:mysql://localhost:3306/demo
+message: |
+  line: one
+  line: two

@@ -2,10 +2,10 @@ package sqlcheck.checker;
 
 import sqlcheck.model.CheckResult;
 
-import java.io.BufferedReader;
 import java.io.File;
-import java.io.FileReader;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashSet;
@@ -94,36 +94,11 @@ public class SqlChecker {
 
     public List<CheckResult> checkFile(File file) {
         List<CheckResult> results = new ArrayList<>();
-        List<String> statements = new ArrayList<>();
-        List<Integer> statementStartLines = new ArrayList<>();
+        List<StatementContext> statements = new ArrayList<>();
 
-        try (BufferedReader reader = new BufferedReader(new FileReader(file))) {
-            String line;
-            int lineNum = 0;
-            StringBuilder currentStmt = new StringBuilder();
-            int stmtStartLine = 1;
-
-            while ((line = reader.readLine()) != null) {
-                lineNum++;
-                currentStmt.append(line).append("\n");
-
-                if (line.trim().endsWith(";")) {
-                    String stmt = currentStmt.toString().trim();
-                    if (!stmt.isEmpty()) {
-                        stmt = stmt.substring(0, stmt.length() - 1).trim();
-                        statements.add(stmt);
-                        statementStartLines.add(stmtStartLine);
-                    }
-                    currentStmt.setLength(0);
-                    stmtStartLine = lineNum + 1;
-                }
-            }
-
-            String remaining = currentStmt.toString().trim();
-            if (!remaining.isEmpty()) {
-                statements.add(remaining);
-                statementStartLines.add(stmtStartLine);
-            }
+        try {
+            String content = new String(Files.readAllBytes(file.toPath()), StandardCharsets.UTF_8);
+            statements = splitStatements(content);
         } catch (IOException e) {
             e.printStackTrace();
         }
@@ -133,21 +108,18 @@ public class SqlChecker {
         boolean hasInsert = false;
         boolean hasDelete = false;
 
-        for (int i = 0; i < statements.size(); i++) {
-            String stmt = statements.get(i);
-            int lineNum = statementStartLines.get(i);
-            StatementContext context = new StatementContext(stmt, lineNum);
-            String upperStmt = stmt.toUpperCase();
+        for (StatementContext context : statements) {
+            String upperStmt = context.analysisStatement.toUpperCase();
 
             checkChinesePunctuationInStatement(result, context);
             checkDDLRepeatable(result, context);
             checkDDLSyntax(result, context);
             checkDDLBestPractice(result, context, upperStmt);
 
-            if (INSERT_INTO.matcher(stmt).find()) {
+            if (INSERT_INTO.matcher(context.analysisStatement).find()) {
                 hasInsert = true;
             }
-            if (DELETE_FROM.matcher(stmt).find()) {
+            if (DELETE_FROM.matcher(context.analysisStatement).find()) {
                 hasDelete = true;
             }
         }
@@ -163,16 +135,16 @@ public class SqlChecker {
 
     private void checkChinesePunctuationInStatement(CheckResult result, StatementContext context) {
         for (StatementLine line : context.lines) {
-            Matcher matcher = CHINESE_PUNCTUATION.matcher(line.text);
+            Matcher matcher = CHINESE_PUNCTUATION.matcher(line.analysisText);
             if (matcher.find()) {
                 result.addIssue(new CheckResult.Issue(line.number, "CHINESE_PUNCTUATION",
-                    "检测到中文符号: " + matcher.group(), "ERROR", line.text.trim()));
+                    "检测到中文符号: " + matcher.group(), "ERROR", line.originalText.trim()));
             }
         }
     }
 
     private void checkDDLRepeatable(CheckResult result, StatementContext context) {
-        String statement = context.statement;
+        String statement = context.analysisStatement;
 
         if (CREATE_TABLE.matcher(statement).find() && !IF_NOT_EXISTS.matcher(statement).find()) {
             addIssue(result, context, context.startLine, "REPEATABLE",
@@ -209,7 +181,7 @@ public class SqlChecker {
     }
 
     private void checkDDLSyntax(CheckResult result, StatementContext context) {
-        String statement = context.statement;
+        String statement = context.analysisStatement;
         String upperLine = statement.toUpperCase();
 
         reportIfMatches(result, context, FLOAT_DEFAULT_NULL, "\\bFLOAT\\b.*\\bDEFAULT\\s+NULL\\b", "SYNTAX_ERROR",
@@ -336,7 +308,7 @@ public class SqlChecker {
     }
 
     private void checkDDLBestPractice(CheckResult result, StatementContext context, String upperLine) {
-        String statement = context.statement;
+        String statement = context.analysisStatement;
 
         reportIfMatches(result, context, INT_AUTO_INCREMENT, "AUTO_INCREMENT", "BEST_PRACTICE",
             "INT AUTO_INCREMENT建议改为BIGINT，防止数据溢出", "WARNING");
@@ -450,10 +422,6 @@ public class SqlChecker {
 
         checkReservedIdentifiers(result, context);
 
-        if (Pattern.compile("`[^`]{64,}`", Pattern.CASE_INSENSITIVE).matcher(statement).find()) {
-            addIssue(result, context, context.startLine, "SYNTAX_ERROR", "列名/表名长度不能超过64字符", "ERROR");
-        }
-
         if (Pattern.compile("\\bTABLE\\s+\\`?\\d", Pattern.CASE_INSENSITIVE).matcher(statement).find()) {
             addIssue(result, context, context.startLine, "SYNTAX_ERROR", "表名不能以数字开头", "ERROR");
         }
@@ -504,9 +472,23 @@ public class SqlChecker {
     }
 
     private void checkReservedIdentifiers(CheckResult result, StatementContext context) {
-        checkIdentifierAgainstReservedWords(result, extractTableName(context.statement), context);
-        checkIdentifierAgainstReservedWords(result, extractIndexName(context.statement), context);
-        checkIdentifierAgainstReservedWords(result, extractColumnName(context.statement), context);
+        String tableName = extractTableName(context.analysisStatement);
+        checkIdentifierAgainstReservedWords(result, tableName, context);
+        checkIdentifierLength(result, tableName, "表名", context);
+
+        String statementIndexName = extractIndexName(context.analysisStatement);
+        checkIdentifierAgainstReservedWords(result, statementIndexName, context);
+        checkIdentifierLength(result, statementIndexName, "索引名", context);
+
+        for (StatementLine line : context.lines) {
+            String indexName = extractIndexName(line.analysisText);
+            checkIdentifierAgainstReservedWords(result, indexName, context);
+            checkIdentifierLength(result, indexName, "索引名", context);
+
+            String columnName = extractColumnName(line.analysisText);
+            checkIdentifierAgainstReservedWords(result, columnName, context);
+            checkIdentifierLength(result, columnName, "列名", context);
+        }
     }
 
     private String extractTableName(String line) {
@@ -564,9 +546,17 @@ public class SqlChecker {
         }
     }
 
+    private void checkIdentifierLength(CheckResult result, String identifier, String identifierType, StatementContext context) {
+        if (identifier == null || identifier.length() <= 64) {
+            return;
+        }
+        int issueLine = findBestLineNumber(context, "`?" + Pattern.quote(identifier) + "`?");
+        addIssue(result, context, issueLine, "SYNTAX_ERROR", identifierType + "长度不能超过64字符", "ERROR");
+    }
+
     private void reportIfMatches(CheckResult result, StatementContext context, Pattern statementPattern, String linePattern,
                                  String type, String message, String severity) {
-        if (statementPattern.matcher(context.statement).find()) {
+        if (statementPattern.matcher(context.analysisStatement).find()) {
             int issueLine = findBestLineNumber(context, linePattern);
             addIssue(result, context, issueLine, type, message, severity);
         }
@@ -580,7 +570,7 @@ public class SqlChecker {
     private int findBestLineNumber(StatementContext context, String regex) {
         Pattern pattern = Pattern.compile(regex, Pattern.CASE_INSENSITIVE);
         for (StatementLine line : context.lines) {
-            if (pattern.matcher(line.text).find()) {
+            if (pattern.matcher(line.analysisText).find()) {
                 return line.number;
             }
         }
@@ -589,12 +579,12 @@ public class SqlChecker {
 
     private String findSourceLineText(StatementContext context, int lineNumber) {
         for (StatementLine line : context.lines) {
-            if (line.number == lineNumber && !line.text.trim().isEmpty()) {
-                return line.text.trim();
+            if (line.number == lineNumber && !line.originalText.trim().isEmpty()) {
+                return line.originalText.trim();
             }
         }
         for (StatementLine line : context.lines) {
-            String trimmed = line.text.trim();
+            String trimmed = line.originalText.trim();
             if (!trimmed.isEmpty() && !trimmed.startsWith("--") && !trimmed.startsWith("#")) {
                 return trimmed;
             }
@@ -602,30 +592,150 @@ public class SqlChecker {
         return null;
     }
 
+    private List<StatementContext> splitStatements(String content) {
+        List<StatementContext> statements = new ArrayList<>();
+        StringBuilder original = new StringBuilder();
+        StringBuilder analysis = new StringBuilder();
+        int statementStartLine = 1;
+        int lineNumber = 1;
+        boolean inSingleQuote = false;
+        boolean inLineComment = false;
+        boolean inBlockComment = false;
+        statementStartLine = -1;
+
+        for (int i = 0; i < content.length(); i++) {
+            char current = content.charAt(i);
+            char next = i + 1 < content.length() ? content.charAt(i + 1) : '\0';
+
+            if (!inSingleQuote && !inLineComment && !inBlockComment && original.length() == 0) {
+                if (Character.isWhitespace(current)) {
+                    if (current == '\n') {
+                        lineNumber++;
+                    }
+                    continue;
+                }
+                statementStartLine = lineNumber;
+            }
+
+            if (inSingleQuote) {
+                original.append(current);
+                analysis.append(maskChar(current));
+                if (current == '\n') {
+                    lineNumber++;
+                }
+                if (current == '\'' && next == '\'') {
+                    original.append(next);
+                    analysis.append(maskChar(next));
+                    i++;
+                } else if (current == '\'') {
+                    inSingleQuote = false;
+                }
+            } else if (inLineComment) {
+                original.append(current);
+                analysis.append(maskChar(current));
+                if (current == '\n') {
+                    inLineComment = false;
+                    lineNumber++;
+                }
+            } else if (inBlockComment) {
+                original.append(current);
+                analysis.append(maskChar(current));
+                if (current == '*' && next == '/') {
+                    original.append(next);
+                    analysis.append(maskChar(next));
+                    i++;
+                    inBlockComment = false;
+                }
+                if (current == '\n') {
+                    lineNumber++;
+                }
+            } else {
+                if (current == '\'') {
+                    inSingleQuote = true;
+                    original.append(current);
+                    analysis.append(maskChar(current));
+                } else if (current == '-' && next == '-') {
+                    inLineComment = true;
+                    original.append(current).append(next);
+                    analysis.append(maskChar(current)).append(maskChar(next));
+                    i++;
+                } else if (current == '#') {
+                    inLineComment = true;
+                    original.append(current);
+                    analysis.append(maskChar(current));
+                } else if (current == '/' && next == '*') {
+                    inBlockComment = true;
+                    original.append(current).append(next);
+                    analysis.append(maskChar(current)).append(maskChar(next));
+                    i++;
+                } else if (current == ';') {
+                    addStatement(statements, original, analysis, statementStartLine);
+                    statementStartLine = -1;
+                } else {
+                    original.append(current);
+                    analysis.append(current);
+                    if (current == '\n') {
+                        lineNumber++;
+                    }
+                }
+            }
+        }
+
+        addStatement(statements, original, analysis, statementStartLine);
+        return statements;
+    }
+
+    private void addStatement(List<StatementContext> statements, StringBuilder original, StringBuilder analysis, int startLine) {
+        String originalStatement = trimTrailingWhitespace(original.toString());
+        String analysisStatement = trimTrailingWhitespace(analysis.toString());
+        if (!originalStatement.trim().isEmpty()) {
+            statements.add(new StatementContext(originalStatement, analysisStatement, startLine > 0 ? startLine : 1));
+        }
+        original.setLength(0);
+        analysis.setLength(0);
+    }
+
+    private String trimTrailingWhitespace(String text) {
+        int end = text.length();
+        while (end > 0 && Character.isWhitespace(text.charAt(end - 1))) {
+            end--;
+        }
+        return text.substring(0, end);
+    }
+
+    private char maskChar(char ch) {
+        return ch == '\n' ? '\n' : ' ';
+    }
+
     private static class StatementContext {
-        private final String statement;
+        private final String originalStatement;
+        private final String analysisStatement;
         private final int startLine;
         private final List<StatementLine> lines;
 
-        private StatementContext(String statement, int startLine) {
-            this.statement = statement;
+        private StatementContext(String originalStatement, String analysisStatement, int startLine) {
+            this.originalStatement = originalStatement;
+            this.analysisStatement = analysisStatement;
             this.startLine = startLine;
             this.lines = new ArrayList<>();
 
-            String[] rawLines = statement.split("\\n", -1);
-            for (int i = 0; i < rawLines.length; i++) {
-                lines.add(new StatementLine(startLine + i, rawLines[i]));
+            String[] originalLines = originalStatement.split("\\n", -1);
+            String[] analysisLines = analysisStatement.split("\\n", -1);
+            for (int i = 0; i < originalLines.length; i++) {
+                lines.add(new StatementLine(startLine + i, originalLines[i], analysisLines[i]));
             }
         }
     }
 
     private static class StatementLine {
         private final int number;
-        private final String text;
+        private final String originalText;
+        private final String analysisText;
 
-        private StatementLine(int number, String text) {
+        private StatementLine(int number, String originalText, String analysisText) {
             this.number = number;
-            this.text = text;
+            this.originalText = originalText;
+            this.analysisText = analysisText;
         }
     }
 }

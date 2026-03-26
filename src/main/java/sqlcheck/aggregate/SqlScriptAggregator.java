@@ -110,7 +110,7 @@ public class SqlScriptAggregator {
             lines.add("-- " + entry.getKey());
             for (ScriptFile file : entry.getValue()) {
                 try {
-                    String content = new String(Files.readAllBytes(file.path), StandardCharsets.UTF_8).trim();
+                    String content = toUnixUtf8(file.path).trim();
                     if (!content.isEmpty()) {
                         lines.add(content);
                         if (!content.endsWith(";")) {
@@ -124,7 +124,7 @@ public class SqlScriptAggregator {
         }
 
         try {
-            Files.write(outputFile, String.join(System.lineSeparator(), lines).concat(System.lineSeparator()).getBytes(StandardCharsets.UTF_8),
+            Files.write(outputFile, String.join("\n", lines).concat("\n").getBytes(StandardCharsets.UTF_8),
                 StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING, StandardOpenOption.WRITE);
         } catch (IOException e) {
             throw new IllegalStateException("写入整合结果失败: " + outputFile, e);
@@ -136,7 +136,7 @@ public class SqlScriptAggregator {
         Path target = outputDir.resolve(relative);
         try {
             Files.createDirectories(target.getParent());
-            Files.copy(source, target, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            writeUnixUtf8(source, target);
         } catch (IOException e) {
             throw new IllegalStateException("复制跳过文件失败: " + source, e);
         }
@@ -169,6 +169,17 @@ public class SqlScriptAggregator {
         }
     }
 
+    private String toUnixUtf8(Path file) throws IOException {
+        String content = new String(Files.readAllBytes(file), StandardCharsets.UTF_8);
+        return content.replace("\r\n", "\n").replace("\r", "\n");
+    }
+
+    private void writeUnixUtf8(Path source, Path target) throws IOException {
+        String content = toUnixUtf8(source);
+        Files.write(target, content.getBytes(StandardCharsets.UTF_8),
+            StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING, StandardOpenOption.WRITE);
+    }
+
     private void copyApolloDirectory(Path apolloDir, Path outputDir) {
         if (!Files.isDirectory(apolloDir)) {
             return;
@@ -182,7 +193,7 @@ public class SqlScriptAggregator {
                         Files.createDirectories(target);
                     } else {
                         Files.createDirectories(target.getParent());
-                        Files.copy(source, target, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                        writeUnixUtf8(source, target);
                     }
                 } catch (IOException e) {
                     throw new IllegalStateException("复制Apollo目录失败: " + source, e);

@@ -74,7 +74,9 @@ public class SqlScriptAggregator {
                     }
                     Path relativePath = inputDir.relativize(path);
                     String subDir = relativePath.getParent() == null ? "" : relativePath.getParent().toString();
-                    files.add(new ScriptFile(path, matcher.group("database"), matcher.group("type").toLowerCase(), matcher.group("submitter"), subDir));
+                    String declaredType = matcher.group("type").toLowerCase();
+                    validateStatementTypes(path, declaredType);
+                    files.add(new ScriptFile(path, matcher.group("database"), declaredType, matcher.group("submitter"), subDir));
                 });
         } catch (IOException e) {
             throw new IllegalStateException("扫描脚本目录失败: " + inputDir, e);
@@ -139,6 +141,50 @@ public class SqlScriptAggregator {
             writeUnixUtf8(source, target);
         } catch (IOException e) {
             throw new IllegalStateException("复制跳过文件失败: " + source, e);
+        }
+    }
+
+    private void validateStatementTypes(Path file, String declaredType) {
+        String content;
+        try {
+            content = toUnixUtf8(file);
+        } catch (IOException e) {
+            throw new IllegalStateException("读取脚本失败: " + file, e);
+        }
+        String[] statements = content.split(";");
+        for (String raw : statements) {
+            String upper = raw.trim().toUpperCase();
+            if (upper.isEmpty()) {
+                continue;
+            }
+            // strip leading comments
+            while (upper.startsWith("--") || upper.startsWith("#") || upper.startsWith("/*")) {
+                int newline = upper.indexOf('\n');
+                if (upper.startsWith("/*")) {
+                    int end = upper.indexOf("*/");
+                    upper = end >= 0 ? upper.substring(end + 2).trim() : "";
+                } else {
+                    upper = newline >= 0 ? upper.substring(newline + 1).trim() : "";
+                }
+            }
+            if (upper.isEmpty()) {
+                continue;
+            }
+            String keyword = upper.split("\\s+")[0];
+            boolean isDdl = keyword.equals("CREATE") || keyword.equals("ALTER")
+                || keyword.equals("DROP") || keyword.equals("RENAME") || keyword.equals("TRUNCATE");
+            boolean isDml = keyword.equals("INSERT") || keyword.equals("REPLACE")
+                || keyword.equals("UPDATE") || keyword.equals("DELETE");
+
+            if (!isDdl && !isDml) {
+                continue;
+            }
+            if ("ddl".equals(declaredType) && isDml) {
+                throw new IllegalStateException("DDL文件 " + file.getFileName() + " 包含DML语句(" + keyword + ")，不允许混合类型");
+            }
+            if ("dml".equals(declaredType) && isDdl) {
+                throw new IllegalStateException("DML文件 " + file.getFileName() + " 包含DDL语句(" + keyword + ")，不允许混合类型");
+            }
         }
     }
 

@@ -1,5 +1,6 @@
 package sqlcheck.checker;
 
+import sqlcheck.config.SqlCheckProperties;
 import sqlcheck.model.CheckResult;
 
 import java.io.File;
@@ -15,6 +16,20 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 public class SqlChecker {
+    private static final Pattern USE_DATABASE = Pattern.compile("\\bUSE\\s+`?([a-zA-Z_][a-zA-Z0-9_$]*)`?\\s*;?", Pattern.CASE_INSENSITIVE);
+    private static final Pattern TABLE_REFERENCE = Pattern.compile(
+        "\\b(?:FROM|JOIN|INTO|UPDATE|TRUNCATE\\s+TABLE|ALTER\\s+TABLE(?:\\s+IF\\s+EXISTS)?|DROP\\s+TABLE(?:\\s+IF\\s+EXISTS)?|CREATE\\s+TABLE(?:\\s+IF\\s+NOT\\s+EXISTS)?|REPLACE\\s+INTO|DELETE\\s+FROM)\\s+((?:`?[a-zA-Z_][a-zA-Z0-9_$]*`?\\.)?`?[a-zA-Z_][a-zA-Z0-9_$]*`?)",
+        Pattern.CASE_INSENSITIVE);
+
+    private final SqlCheckProperties properties;
+
+    public SqlChecker() {
+        this(new SqlCheckProperties());
+    }
+
+    public SqlChecker(SqlCheckProperties properties) {
+        this.properties = properties;
+    }
     private static final Pattern CHINESE_PUNCTUATION = Pattern.compile("[，。；：、‘’“”【】《》（）]");
     private static final Pattern CREATE_TABLE = Pattern.compile("CREATE\\s+TABLE", Pattern.CASE_INSENSITIVE);
     private static final Pattern ALTER_TABLE = Pattern.compile("ALTER\\s+TABLE", Pattern.CASE_INSENSITIVE);
@@ -96,6 +111,11 @@ public class SqlChecker {
         List<CheckResult> results = new ArrayList<>();
         List<StatementContext> statements = new ArrayList<>();
 
+        CheckResult result = new CheckResult(file.getName(), file.getAbsolutePath(), "SQL");
+        validateSqlFileName(file, result);
+
+        String declaredType = extractDeclaredType(file.getName());
+
         try {
             String content = new String(Files.readAllBytes(file.toPath()), StandardCharsets.UTF_8);
             statements = splitStatements(content);
@@ -103,7 +123,6 @@ public class SqlChecker {
             e.printStackTrace();
         }
 
-        CheckResult result = new CheckResult(file.getName(), file.getAbsolutePath(), "SQL");
 
         boolean hasInsert = false;
         boolean hasDelete = false;
@@ -112,9 +131,13 @@ public class SqlChecker {
             String upperStmt = context.analysisStatement.toUpperCase();
 
             checkChinesePunctuationInStatement(result, context);
+            checkDatabaseRules(result, context);
             checkDDLRepeatable(result, context);
             checkDDLSyntax(result, context);
             checkDDLBestPractice(result, context, upperStmt);
+            if (declaredType != null) {
+                checkStatementMatchesDeclaredType(result, context, declaredType);
+            }
 
             if (INSERT_INTO.matcher(context.analysisStatement).find()) {
                 hasInsert = true;
@@ -131,6 +154,77 @@ public class SqlChecker {
 
         results.add(result);
         return results;
+    }
+
+    private String extractDeclaredType(String fileName) {
+        Matcher m = Pattern.compile("^[a-zA-Z0-9_]+_(ddl|dml)_[a-zA-Z0-9_]+\\.sql$", Pattern.CASE_INSENSITIVE).matcher(fileName);
+        return m.matches() ? m.group(1).toLowerCase() : null;
+    }
+
+    private void checkStatementMatchesDeclaredType(CheckResult result, StatementContext context, String declaredType) {
+        String upper = context.analysisStatement.trim().toUpperCase();
+        boolean isDdl = upper.startsWith("CREATE") || upper.startsWith("ALTER")
+            || upper.startsWith("DROP") || upper.startsWith("RENAME") || upper.startsWith("TRUNCATE");
+        boolean isDml = upper.startsWith("INSERT") || upper.startsWith("REPLACE")
+            || upper.startsWith("UPDATE") || upper.startsWith("DELETE");
+
+        if (!isDdl && !isDml) {
+            return;
+        }
+
+        if ("ddl".equals(declaredType) && isDml) {
+            addIssue(result, context, context.startLine, "TYPE_MISMATCH",
+                "DDL文件中包含DML语句(" + upper.split("\\s+")[0] + ")，DDL文件只允许 CREATE/ALTER/DROP/RENAME/TRUNCATE", "ERROR");
+        } else if ("dml".equals(declaredType) && isDdl) {
+            addIssue(result, context, context.startLine, "TYPE_MISMATCH",
+                "DML文件中包含DDL语句(" + upper.split("\\s+")[0] + ")，DML文件只允许 INSERT/REPLACE/UPDATE/DELETE", "ERROR");
+        }
+    }
+
+    private void validateSqlFileName(File file, CheckResult result) {
+        String fileName = file.getName();
+        String pattern = properties.getSqlFileNamePattern();
+        if (pattern == null || pattern.trim().isEmpty()) {
+            pattern = "^[a-zA-Z0-9_]+_(ddl|dml)_[a-zA-Z0-9_]+\\.sql$";
+        }
+        if (!Pattern.compile(pattern, Pattern.CASE_INSENSITIVE).matcher(fileName).matches()) {
+            result.addIssue(new CheckResult.Issue(0, "CONFIG_ERROR", "SQL文件名不符合规范: " + fileName, "WARNING"));
+        }
+    }
+
+    private void checkDatabaseRules(CheckResult result, StatementContext context) {
+        if (!properties.isDatabaseCheckEnabled()) {
+            return;
+        }
+
+        String configuredDatabase = properties.getDatabaseName() == null ? "" : properties.getDatabaseName().trim();
+        if (configuredDatabase.isEmpty()) {
+            addIssue(result, context, context.startLine, "CONFIG_ERROR", "启用数据库前缀检查时必须配置database-name", "ERROR");
+            return;
+        }
+
+        if (USE_DATABASE.matcher(context.analysisStatement).find()) {
+            int issueLine = findBestLineNumber(context, "\\bUSE\\s+");
+            addIssue(result, context, issueLine, "DANGEROUS", "禁止使用 USE 切库语句", "ERROR");
+        }
+
+        Matcher referenceMatcher = TABLE_REFERENCE.matcher(context.analysisStatement);
+        while (referenceMatcher.find()) {
+            String reference = referenceMatcher.group(1).trim();
+            String normalizedReference = reference.replace("`", "");
+            int dotIndex = normalizedReference.indexOf('.');
+            if (dotIndex < 0) {
+                int issueLine = findBestLineNumber(context, Pattern.quote(reference));
+                addIssue(result, context, issueLine, "SYNTAX_ERROR", "表引用必须写成 数据库名.表名 形式: " + reference, "ERROR");
+                continue;
+            }
+
+            String databasePart = normalizedReference.substring(0, dotIndex).trim();
+            if (!configuredDatabase.equalsIgnoreCase(databasePart)) {
+                int issueLine = findBestLineNumber(context, Pattern.quote(reference));
+                addIssue(result, context, issueLine, "SYNTAX_ERROR", "表引用必须使用配置的数据库名 " + configuredDatabase + ": " + reference, "ERROR");
+            }
+        }
     }
 
     private void checkChinesePunctuationInStatement(CheckResult result, StatementContext context) {
@@ -420,7 +514,9 @@ public class SqlChecker {
         reportIfMatches(result, context, DELETE_WITHOUT_WHERE, "DELETE\\s+FROM", "DANGEROUS",
             "DELETE语句缺少WHERE条件，会删除全表！", "ERROR");
 
-        checkReservedIdentifiers(result, context);
+        if (isDdlStatement(context.analysisStatement)) {
+            checkReservedIdentifiers(result, context);
+        }
 
         if (Pattern.compile("\\bTABLE\\s+\\`?\\d", Pattern.CASE_INSENSITIVE).matcher(statement).find()) {
             addIssue(result, context, context.startLine, "SYNTAX_ERROR", "表名不能以数字开头", "ERROR");
@@ -469,6 +565,12 @@ public class SqlChecker {
         if (Pattern.compile("\\b\\(\\s*\\+\\s*\\d+\\s*,\\s*\\d+\\s*\\)\\s*$", Pattern.CASE_INSENSITIVE).matcher(statement).find()) {
             addIssue(result, context, context.startLine, "WARNING", "INSERT VALUES中有多余括号，请检查", "WARNING");
         }
+    }
+
+    private boolean isDdlStatement(String analysisStatement) {
+        String upper = analysisStatement.trim().toUpperCase();
+        return upper.startsWith("CREATE") || upper.startsWith("ALTER")
+            || upper.startsWith("DROP") || upper.startsWith("RENAME");
     }
 
     private void checkReservedIdentifiers(CheckResult result, StatementContext context) {

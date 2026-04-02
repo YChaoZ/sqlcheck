@@ -109,6 +109,69 @@ class ApolloCheckerTest {
         assertEquals("id: demo", issue.getSourceLineText());
     }
 
+    @Test
+    void shouldPassCleanApolloScriptYaml() throws IOException {
+        String content =
+            "insert:\n" +
+            "  app.name:\n" +
+            "    value: test-app\n" +
+            "    comment: 应用名称\n" +
+            "update:\n" +
+            "  app.version:\n" +
+            "    value: \"1.0.1\"\n" +
+            "    comment: 更新版本\n" +
+            "delete:\n" +
+            "  old.key:\n";
+        CheckResult result = checkApolloYaml(content);
+
+        assertFalse(hasIssue(result, "DUPLICATE_KEY"));
+        assertFalse(hasIssue(result, "SYNTAX_ERROR"));
+    }
+
+    @Test
+    void shouldReportDuplicateKeyInApolloScriptYaml() throws IOException {
+        String content =
+            "insert:\n" +
+            "  app.name:\n" +
+            "    value: test-app\n" +
+            "insert:\n" +
+            "  app.name:\n" +
+            "    value: test-app2\n";
+        CheckResult result = checkApolloYaml(content);
+
+        assertEquals(1, countIssues(result, "DUPLICATE_KEY"));
+    }
+
+    @Test
+    void shouldReportMissingValueInApolloScriptYaml() throws IOException {
+        String content =
+            "insert:\n" +
+            "  app.name:\n" +
+            "    comment: 没有value\n";
+        CheckResult result = checkApolloYaml(content);
+
+        assertTrue(hasIssue(result, "SYNTAX_ERROR"));
+    }
+
+    @Test
+    void shouldReportMissingKeyInApolloScriptYaml() throws IOException {
+        String content =
+            "update:\n";
+        CheckResult result = checkApolloYaml(content);
+
+        assertTrue(hasIssue(result, "SYNTAX_ERROR"));
+    }
+
+    @Test
+    void shouldNotReportErrorForDeleteWithoutValue() throws IOException {
+        String content =
+            "delete:\n" +
+            "  old.key:\n";
+        CheckResult result = checkApolloYaml(content);
+
+        assertFalse(hasIssue(result, "SYNTAX_ERROR"));
+    }
+
     private CheckResult checkApolloSql(String content) throws IOException {
         return checkFile(content, ".sql");
     }

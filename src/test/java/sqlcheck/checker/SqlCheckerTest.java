@@ -1,6 +1,7 @@
 package sqlcheck.checker;
 
 import org.junit.jupiter.api.Test;
+import sqlcheck.config.SqlCheckProperties;
 import sqlcheck.model.CheckResult;
 
 import java.io.IOException;
@@ -17,6 +18,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class SqlCheckerTest {
 
     private final SqlChecker checker = new SqlChecker();
+    private final SqlChecker databaseAwareChecker = new SqlChecker(databaseProperties("biz_db", true));
 
     @Test
     void shouldNotReportSqlKeywordsAsReservedIdentifiers() throws IOException {
@@ -156,6 +158,19 @@ class SqlCheckerTest {
     }
 
     @Test
+    void shouldEnforceDatabasePrefixWhenEnabled() throws IOException {
+        CheckResult okResult = checkSql(databaseAwareChecker, "CREATE TABLE biz_db.user_account (id BIGINT);\n");
+        CheckResult missingPrefixResult = checkSql(databaseAwareChecker, "CREATE TABLE user_account (id BIGINT);\n");
+        CheckResult useResult = checkSql(databaseAwareChecker, "USE biz_db;\nCREATE TABLE biz_db.user_account (id BIGINT);\n");
+        CheckResult apolloResult = checkApolloLikeSql("USE biz_db;\nCREATE TABLE user_account (id BIGINT);\n");
+
+        assertFalse(hasIssue(okResult, "SYNTAX_ERROR", "数据库名.表名"));
+        assertTrue(hasIssue(missingPrefixResult, "SYNTAX_ERROR", "数据库名.表名"));
+        assertTrue(hasIssue(useResult, "DANGEROUS", "禁止使用 USE 切库语句"));
+        assertFalse(hasIssue(apolloResult, "SYNTAX_ERROR", "数据库名.表名"));
+    }
+
+    @Test
     void shouldKeepOriginalSourceLineWhenAnalysisMasksCommentOrString() throws IOException {
         String longColumn = repeated('c', 65);
         CheckResult result = checkSql("CREATE TABLE test_table (\n" +
@@ -168,12 +183,90 @@ class SqlCheckerTest {
         assertEquals("`" + longColumn + "` BIGINT COMMENT '中文，注释'", issue.getSourceLineText());
     }
 
+    @Test
+    void shouldHandleAutoIncrementZeroAsWarning() throws IOException {
+        CheckResult result = checkSql("CREATE TABLE test_table (\n" +
+            "    id BIGINT AUTO_INCREMENT=0 PRIMARY KEY\n" +
+            ");\n");
+
+        CheckResult.Issue issue = findIssue(result, "SYNTAX_ERROR", "AUTO_INCREMENT起始值0");
+        assertNotNull(issue);
+        assertEquals("WARNING", issue.getSeverity());
+    }
+
+    @Test
+    void shouldHandleAutoIncrementInvalidValueAsError() throws IOException {
+        CheckResult result = checkSql("CREATE TABLE test_table (\n" +
+            "    id BIGINT AUTO_INCREMENT=100 PRIMARY KEY\n" +
+            ");\n");
+
+        CheckResult.Issue issue = findIssue(result, "SYNTAX_ERROR", "AUTO_INCREMENT起始值只能为0或1");
+        assertNotNull(issue);
+        assertEquals("ERROR", issue.getSeverity());
+    }
+
+    @Test
+    void shouldHandleCharsetNotUtf8mb4AsWarning() throws IOException {
+        CheckResult utf8Result = checkSql("CREATE TABLE test_table (\n" +
+            "    id BIGINT PRIMARY KEY\n" +
+            ") ENGINE=InnoDB CHARSET=utf8;\n");
+
+        CheckResult.Issue utf8Issue = findIssue(utf8Result, "DEPRECATED", "字符集建议使用 utf8mb4");
+        assertNotNull(utf8Issue);
+        assertEquals("WARNING", utf8Issue.getSeverity());
+
+        CheckResult gbkResult = checkSql("CREATE TABLE test_table (\n" +
+            "    id BIGINT PRIMARY KEY\n" +
+            ") ENGINE=InnoDB CHARSET=gbk;\n");
+
+        CheckResult.Issue gbkIssue = findIssue(gbkResult, "DEPRECATED", "字符集建议使用 utf8mb4");
+        assertNotNull(gbkIssue);
+        assertEquals("WARNING", gbkIssue.getSeverity());
+
+        CheckResult mb4Result = checkSql("CREATE TABLE test_table (\n" +
+            "    id BIGINT PRIMARY KEY\n" +
+            ") ENGINE=InnoDB CHARSET=utf8mb4;\n");
+
+        assertFalse(hasIssue(mb4Result, "DEPRECATED", "字符集建议使用 utf8mb4"));
+    }
+
+    @Test
+    void shouldHandleDecimalDefaultNullAsWarning() throws IOException {
+        CheckResult result = checkSql("CREATE TABLE test_table (\n" +
+            "    amount DECIMAL(10,2) DEFAULT NULL,\n" +
+            "    price DECIMAL DEFAULT NULL\n" +
+            ");\n");
+
+        CheckResult.Issue issue = findIssue(result, "SYNTAX_ERROR", "DECIMAL类型不建议使用DEFAULT NULL");
+        assertNotNull(issue);
+        assertEquals("WARNING", issue.getSeverity());
+    }
+
     private CheckResult checkSql(String content) throws IOException {
+        return checkSql(checker, content);
+    }
+
+    private CheckResult checkSql(SqlChecker sqlChecker, String content) throws IOException {
         Path file = Files.createTempFile("sql-checker-", ".sql");
         Files.write(file, content.getBytes(StandardCharsets.UTF_8));
-        List<CheckResult> results = checker.checkFile(file.toFile());
+        List<CheckResult> results = sqlChecker.checkFile(file.toFile());
         assertEquals(1, results.size());
         return results.get(0);
+    }
+
+    private CheckResult checkApolloLikeSql(String content) throws IOException {
+        Path file = Files.createTempFile("apollo-like-", ".sql");
+        Files.write(file, content.getBytes(StandardCharsets.UTF_8));
+        List<CheckResult> results = new ApolloChecker().checkFile(file.toFile());
+        assertEquals(1, results.size());
+        return results.get(0);
+    }
+
+    private SqlCheckProperties databaseProperties(String databaseName, boolean enabled) {
+        SqlCheckProperties properties = new SqlCheckProperties();
+        properties.setDatabaseName(databaseName);
+        properties.setDatabaseCheckEnabled(enabled);
+        return properties;
     }
 
     private boolean hasIssue(CheckResult result, String type, String messagePart) {
@@ -197,6 +290,10 @@ class SqlCheckerTest {
     }
 
     private String repeated(char ch, int count) {
-        return String.valueOf(ch).repeat(count);
+        StringBuilder sb = new StringBuilder(count);
+        for (int i = 0; i < count; i++) {
+            sb.append(ch);
+        }
+        return sb.toString();
     }
 }

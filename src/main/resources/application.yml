@@ -1,9 +1,17 @@
 # SQL/Apollo配置检查工具配置
 
 sqlcheck:
-  # SQL文件目录
+  # SQL文件目录（报告和整合目录自动建在同级父目录下）
   sql-dir: sql
   # Apollo配置文件目录
   apollo-dir: apollo
-  # 输出报告目录
-  output-dir: output
+  # SQL文件名规范: database_ddl_submitter.sql / database_dml_submitter.sql
+  sql-file-name-pattern: '^(?<database>[a-zA-Z0-9_]+)_(?<type>ddl|dml)_(?<submitter>[a-zA-Z0-9_]+)\.sql$'
+  # 整合脚本文件名规范（同上）
+  aggregation-file-name-pattern: '^(?<database>[a-zA-Z0-9_]+)_(?<type>ddl|dml)_(?<submitter>[a-zA-Z0-9_]+)\.sql$'
+  # 跳过整合的脚本名前缀，例如: ["tmp_", "skip_"]
+  aggregation-skip-prefixes: []
+  # 是否启用数据库前缀检查
+  database-check-enabled: false
+  # 数据库名，启用数据库前缀检查时必填
+  database-name: ""

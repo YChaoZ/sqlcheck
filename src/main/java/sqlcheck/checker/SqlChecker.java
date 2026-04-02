@@ -41,6 +41,7 @@ public class SqlChecker {
     private static final Pattern IF_NOT_EXISTS = Pattern.compile("IF\\s+NOT\\s+EXISTS", Pattern.CASE_INSENSITIVE);
     private static final Pattern IF_EXISTS = Pattern.compile("IF\\s+EXISTS", Pattern.CASE_INSENSITIVE);
     private static final Pattern CHARSET = Pattern.compile("CHARSET\\s*=", Pattern.CASE_INSENSITIVE);
+    private static final Pattern CHARSET_NOT_MB4 = Pattern.compile("\\bCHARSET\\s*=\\s*(?!utf8mb4)\\w+", Pattern.CASE_INSENSITIVE);
     private static final Pattern ENGINE = Pattern.compile("ENGINE\\s*=", Pattern.CASE_INSENSITIVE);
 
     private static final Pattern FLOAT_DEFAULT_NULL = Pattern.compile("\\bFLOAT\\b.*\\bDEFAULT\\s+NULL\\b", Pattern.CASE_INSENSITIVE);
@@ -63,6 +64,7 @@ public class SqlChecker {
     private static final Pattern FULLTEXT_KEY_NO_NAME = Pattern.compile("\\bFULLTEXT\\s+KEY\\s*\\(", Pattern.CASE_INSENSITIVE);
     private static final Pattern SPATIAL_KEY_NO_NAME = Pattern.compile("\\bSPATIAL\\s+KEY\\s*\\(", Pattern.CASE_INSENSITIVE);
     private static final Pattern AUTO_INCREMENT_ZERO = Pattern.compile("\\bAUTO_INCREMENT\\s*=\\s*0\\b", Pattern.CASE_INSENSITIVE);
+    private static final Pattern AUTO_INCREMENT_INVALID = Pattern.compile("\\bAUTO_INCREMENT\\s*=\\s*([2-9]|[1-9]\\d+)\\b", Pattern.CASE_INSENSITIVE);
     private static final Pattern INT_AUTO_INCREMENT = Pattern.compile("\\bINT\\b.*\\bAUTO_INCREMENT\\b", Pattern.CASE_INSENSITIVE);
     private static final Pattern SMALLINT_AUTO_INCREMENT = Pattern.compile("\\bSMALLINT\\b.*\\bAUTO_INCREMENT\\b", Pattern.CASE_INSENSITIVE);
     private static final Pattern TINYINT_AUTO_INCREMENT = Pattern.compile("\\bTINYINT\\b.*\\bAUTO_INCREMENT\\b", Pattern.CASE_INSENSITIVE);
@@ -113,6 +115,7 @@ public class SqlChecker {
 
         CheckResult result = new CheckResult(file.getName(), file.getAbsolutePath(), "SQL");
         validateSqlFileName(file, result);
+        detectFileEncoding(result, file);
 
         String declaredType = extractDeclaredType(file.getName());
 
@@ -189,6 +192,26 @@ public class SqlChecker {
         }
         if (!Pattern.compile(pattern, Pattern.CASE_INSENSITIVE).matcher(fileName).matches()) {
             result.addIssue(new CheckResult.Issue(0, "CONFIG_ERROR", "SQL文件名不符合规范: " + fileName, "WARNING"));
+        }
+    }
+
+    private void detectFileEncoding(CheckResult result, File file) {
+        try {
+            byte[] bytes = Files.readAllBytes(file.toPath());
+            if (bytes.length == 0) {
+                return;
+            }
+
+            java.nio.charset.CharsetDecoder decoder = StandardCharsets.UTF_8.newDecoder();
+            decoder.onMalformedInput(java.nio.charset.CodingErrorAction.REPORT);
+            decoder.onUnmappableCharacter(java.nio.charset.CodingErrorAction.REPORT);
+            try {
+                decoder.decode(java.nio.ByteBuffer.wrap(bytes));
+            } catch (java.nio.charset.MalformedInputException e) {
+                result.addIssue(new CheckResult.Issue(0, "ENCODING", "文件编码不是UTF-8，存在乱码风险", "ERROR"));
+            }
+        } catch (IOException e) {
+            result.addIssue(new CheckResult.Issue(0, "ENCODING", "无法读取文件编码: " + e.getMessage(), "ERROR"));
         }
     }
 
@@ -283,7 +306,7 @@ public class SqlChecker {
         reportIfMatches(result, context, DOUBLE_DEFAULT_NULL, "\\bDOUBLE\\b.*\\bDEFAULT\\s+NULL\\b", "SYNTAX_ERROR",
             "DOUBLE类型不建议使用DEFAULT NULL，建议使用DEFAULT 0或DEFAULT 0.0", "ERROR");
         reportIfMatches(result, context, DECIMAL_DEFAULT_NULL, "\\bDECIMAL?\\b.*\\bDEFAULT\\s+NULL\\b", "SYNTAX_ERROR",
-            "DECIMAL类型不建议使用DEFAULT NULL，建议使用DEFAULT 0", "ERROR");
+            "DECIMAL类型不建议使用DEFAULT NULL，建议使用DEFAULT 0", "WARNING");
         reportIfMatches(result, context, VARCHAR_ZERO, "VARCHAR\\s*\\(\\s*0\\s*\\)", "SYNTAX_ERROR",
             "VARCHAR长度不能为0", "ERROR");
         reportIfMatches(result, context, CHAR_ZERO, "\\bCHAR\\s*\\(\\s*0\\s*\\)", "SYNTAX_ERROR",
@@ -342,7 +365,10 @@ public class SqlChecker {
         }
 
         reportIfMatches(result, context, AUTO_INCREMENT_ZERO, "AUTO_INCREMENT\\s*=\\s*0", "SYNTAX_ERROR",
-            "AUTO_INCREMENT起始值不能为0", "ERROR");
+            "AUTO_INCREMENT起始值0，将从0开始递增", "WARNING");
+
+        reportIfMatches(result, context, AUTO_INCREMENT_INVALID, "AUTO_INCREMENT\\s*=\\s*\\d+", "SYNTAX_ERROR",
+            "AUTO_INCREMENT起始值只能为0或1", "ERROR");
 
         if (Pattern.compile("\\bFOREIGN\\s+KEY\\b.*REFERENCES.*\\)\\s*$", Pattern.CASE_INSENSITIVE).matcher(statement).find()
             && !Pattern.compile("\\bFOREIGN\\s+KEY\\b.*REFERENCES.*\\)\\s*(,|$|\\))", Pattern.CASE_INSENSITIVE).matcher(statement).find()) {
@@ -436,6 +462,9 @@ public class SqlChecker {
         if (!CHARSET.matcher(statement).find() && CREATE_TABLE.matcher(statement).find()) {
             addIssue(result, context, context.startLine, "BEST_PRACTICE", "建议指定字符集 CHARSET=utf8mb4", "INFO");
         }
+
+        reportIfMatches(result, context, CHARSET_NOT_MB4, "CHARSET\\s*=", "DEPRECATED",
+            "字符集建议使用 utf8mb4", "WARNING");
 
         if (!ENGINE.matcher(statement).find() && CREATE_TABLE.matcher(statement).find()) {
             addIssue(result, context, context.startLine, "BEST_PRACTICE", "建议指定存储引擎 ENGINE=InnoDB", "INFO");
@@ -824,7 +853,8 @@ public class SqlChecker {
             String[] originalLines = originalStatement.split("\\n", -1);
             String[] analysisLines = analysisStatement.split("\\n", -1);
             for (int i = 0; i < originalLines.length; i++) {
-                lines.add(new StatementLine(startLine + i, originalLines[i], analysisLines[i]));
+                String analLine = i < analysisLines.length ? analysisLines[i] : "";
+                lines.add(new StatementLine(startLine + i, originalLines[i], analLine));
             }
         }
     }

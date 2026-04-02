@@ -2,6 +2,7 @@ package sqlcheck.service;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import sqlcheck.aggregate.SqlScriptAggregator;
 import sqlcheck.checker.ApolloChecker;
 import sqlcheck.checker.SqlChecker;
 import sqlcheck.config.SqlCheckProperties;
@@ -17,6 +18,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
+import java.util.stream.Stream;
 
 @Service
 public class SqlCheckService {
@@ -31,10 +33,14 @@ public class SqlCheckService {
         System.out.println("\n=== SQL/Apollo配置检查工具 ===\n");
         printResolvedConfig();
 
+        cleanDirectory(properties.resolveOutputDir());
+        cleanDirectory(properties.resolveAggregationOutputDir());
+
         List<CheckResult> allResults = new ArrayList<>();
         checkSqlFiles(allResults);
         checkApolloFiles(allResults);
         generateReports(allResults);
+        aggregateScriptsIfClean(allResults);
         printSummary(allResults);
     }
 
@@ -42,7 +48,8 @@ public class SqlCheckService {
         System.out.println("当前配置:");
         printResolvedPath("SQL目录", properties.getSqlDir(), properties.resolveSqlDir());
         printResolvedPath("Apollo目录", properties.getApolloDir(), properties.resolveApolloDir());
-        printResolvedPath("输出目录", properties.getOutputDir(), properties.resolveOutputDir());
+        printResolvedPath("报告目录", "(自动推导)", properties.resolveOutputDir());
+        printResolvedPath("整合目录", "(自动推导)", properties.resolveAggregationOutputDir());
         System.out.println();
     }
 
@@ -54,7 +61,7 @@ public class SqlCheckService {
         Path sqlDir = properties.resolveSqlDir();
         System.out.println("检查SQL目录: " + sqlDir);
         List<File> files = collectFiles(sqlDir, "SQL", SQL_EXTENSIONS, allResults);
-        SqlChecker sqlChecker = new SqlChecker();
+        SqlChecker sqlChecker = new SqlChecker(properties);
         if (files.isEmpty()) {
             System.out.println("  (无SQL文件或扫描失败)");
         }
@@ -160,15 +167,57 @@ public class SqlCheckService {
 
     private void generateReports(List<CheckResult> allResults) {
         Path outputDir = properties.resolveOutputDir();
-        File directory = outputDir.toFile();
-        if (!directory.exists() && !directory.mkdirs()) {
-            throw new IllegalStateException("无法创建输出目录: " + outputDir);
+        try {
+            Files.createDirectories(outputDir);
+        } catch (IOException e) {
+            throw new IllegalStateException("无法创建报告目录: " + outputDir, e);
         }
         ReportGenerator reporter = new ReportGenerator();
         String htmlPath = outputDir.resolve("report.html").toString();
         String jsonPath = outputDir.resolve("report.json").toString();
         reporter.generateHtmlReport(allResults, htmlPath);
         reporter.generateJsonReport(allResults, jsonPath);
+    }
+
+    private void aggregateScriptsIfClean(List<CheckResult> allResults) {
+        boolean hasErrors = allResults.stream()
+            .filter(result -> "SQL".equalsIgnoreCase(result.getFileType()))
+            .anyMatch(result -> result.isScanError() || !result.isPassed());
+        if (hasErrors) {
+            System.out.println("\n检测到SQL ERROR，跳过脚本整合。");
+            return;
+        }
+        try {
+            SqlScriptAggregator aggregator = new SqlScriptAggregator(properties);
+            List<Path> outputs = aggregator.aggregate();
+            if (outputs.isEmpty()) {
+                System.out.println("\n未发现可整合脚本。");
+                return;
+            }
+            System.out.println("\n脚本整合结果:");
+            for (Path output : outputs) {
+                System.out.println("  " + output);
+            }
+        } catch (IllegalStateException e) {
+            System.out.println("\n脚本整合失败: " + e.getMessage());
+        }
+    }
+
+    private void cleanDirectory(Path dir) {
+        if (!Files.isDirectory(dir)) {
+            return;
+        }
+        try (Stream<Path> stream = Files.walk(dir)) {
+            stream.sorted(Comparator.reverseOrder())
+                .filter(p -> !p.equals(dir))
+                .forEach(p -> {
+                    try {
+                        Files.delete(p);
+                    } catch (IOException ignored) {
+                    }
+                });
+        } catch (IOException ignored) {
+        }
     }
 
     private void printSummary(List<CheckResult> allResults) {
@@ -183,5 +232,5 @@ public class SqlCheckService {
         System.out.println("报告已生成:");
         System.out.println("  HTML: " + properties.resolveOutputDir().resolve("report.html"));
         System.out.println("  JSON: " + properties.resolveOutputDir().resolve("report.json"));
-    }
+        System.out.println("  整合输出: " + properties.resolveAggregationOutputDir());    }
 }

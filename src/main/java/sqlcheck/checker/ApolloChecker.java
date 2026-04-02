@@ -39,7 +39,11 @@ public class ApolloChecker {
         } else if (fileName.endsWith(".json")) {
             checkJson(result, content);
         } else if (fileName.endsWith(".yaml") || fileName.endsWith(".yml")) {
-            checkYaml(result, content);
+            if (isApolloScriptYaml(content)) {
+                checkApolloScriptYaml(result, content);
+            } else {
+                checkYaml(result, content);
+            }
         } else {
             checkApolloScript(result, content);
         }
@@ -119,6 +123,137 @@ public class ApolloChecker {
             }
         } else if (!line.isEmpty() && !line.startsWith("#")) {
             addIssue(result, lineNum, "FORMAT", "未识别的语句格式，应以INSERT/UPDATE/DELETE/REPLACE开头", "WARNING", rawLine);
+        }
+    }
+
+    private boolean isApolloScriptYaml(String content) {
+        Pattern opPattern = Pattern.compile("^(insert|update|delete|replace)\\s*:\\s*$", Pattern.CASE_INSENSITIVE);
+        for (String line : content.split("\n")) {
+            if (opPattern.matcher(line.trim()).matches()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * 解析 Apollo Script YAML 格式，三层结构：
+     *   insert:          (层0, 操作符)
+     *     app.name:      (层1, 配置项名称直接作为 YAML key，容器节点)
+     *       value: ""   (层2, 配置值)
+     *       comment: "" (层2, 注释，可选)
+     */
+    private void checkApolloScriptYaml(CheckResult result, String content) {
+        String[] lines = content.split("\n", -1);
+        Set<String> seenKeys = new LinkedHashSet<>();
+
+        String currentOp = null;
+        int currentOpLine = -1;
+        String currentKey = null;
+        int currentKeyLine = -1;
+        String currentKeyRaw = null;
+        int currentKeyIndent = -1;
+        boolean currentHasValue = false;
+
+        for (int i = 0; i < lines.length; i++) {
+            String raw = lines[i];
+            int lineNum = i + 1;
+            String trimmed = raw.trim();
+
+            if (trimmed.isEmpty() || trimmed.startsWith("#")) {
+                continue;
+            }
+
+            if (raw.contains("\t")) {
+                addIssue(result, lineNum, "INDENT", "不应使用Tab缩进，请使用空格", "ERROR", raw);
+            }
+
+            checkChinesePunctuation(result, raw, lineNum);
+
+            int indent = countIndent(raw);
+
+            if (indent == 0) {
+                // 层0：操作符行，先校验上一条记录
+                if (currentOp != null) {
+                    validateApolloScriptEntry(result, currentOp, currentOpLine, currentKey, currentKeyLine,
+                            currentKeyRaw, currentHasValue, seenKeys);
+                }
+                String opCandidate = trimmed.endsWith(":") ? trimmed.substring(0, trimmed.length() - 1).trim() : null;
+                if (opCandidate != null && opCandidate.matches("(?i)insert|update|delete|replace")) {
+                    currentOp = opCandidate.toLowerCase();
+                    currentOpLine = lineNum;
+                    currentKey = null;
+                    currentKeyLine = -1;
+                    currentKeyRaw = null;
+                    currentKeyIndent = -1;
+                    currentHasValue = false;
+                } else {
+                    addIssue(result, lineNum, "FORMAT", "未识别的顶级操作符，应为 insert/update/delete/replace: " + trimmed, "WARNING", raw);
+                    currentOp = null;
+                }
+
+            } else if (currentOp != null) {
+                if (currentKeyIndent < 0 || indent <= currentKeyIndent) {
+                    // 层1：配置项名称作为容器 key（如 app.name:），值为空
+                    YamlKeyParseResult parsed = parseYamlKey(trimmed);
+                    if (parsed != null && parsed.value.isEmpty()) {
+                        // 遇到新的配置项 key，先校验上一条
+                        if (currentKey != null) {
+                            validateApolloScriptEntry(result, currentOp, currentOpLine, currentKey, currentKeyLine,
+                                    currentKeyRaw, currentHasValue, seenKeys);
+                        }
+                        currentKey = stripQuotes(parsed.key);
+                        currentKeyLine = lineNum;
+                        currentKeyRaw = raw;
+                        currentKeyIndent = indent;
+                        currentHasValue = false;
+                    }
+                } else {
+                    // 层2：value / comment 字段（缩进比层1更深）
+                    YamlKeyParseResult parsed = parseYamlKey(trimmed);
+                    if (parsed != null && "value".equalsIgnoreCase(parsed.key)) {
+                        currentHasValue = true;
+                    }
+                }
+            }
+        }
+
+        // 处理最后一条记录
+        if (currentOp != null) {
+            validateApolloScriptEntry(result, currentOp, currentOpLine, currentKey, currentKeyLine,
+                    currentKeyRaw, currentHasValue, seenKeys);
+        }
+    }
+
+    private String stripQuotes(String s) {
+        if (s.length() >= 2
+                && ((s.startsWith("\"") && s.endsWith("\""))
+                || (s.startsWith("'") && s.endsWith("'")))) {
+            return s.substring(1, s.length() - 1);
+        }
+        return s;
+    }
+
+    private void validateApolloScriptEntry(CheckResult result, String op, int opLine,
+                                            String key, int keyLine, String keyRaw,
+                                            boolean hasValue, Set<String> seenKeys) {
+        if (key == null || key.isEmpty()) {
+            addIssue(result, opLine, "SYNTAX_ERROR", "缺少 key 字段，格式应为:\n  " + op + ":\n    key: xxx", "ERROR", op + ":");
+            return;
+        }
+
+        if (!op.equals("delete") && !hasValue) {
+            addIssue(result, keyLine, "SYNTAX_ERROR", op + " 操作缺少 value 字段", "ERROR", keyRaw);
+        }
+
+        if (!Pattern.matches("^[a-zA-Z][a-zA-Z0-9_.-]*$", key)) {
+            addIssue(result, keyLine, "FORMAT", "key 格式不规范，应以字母开头，仅包含字母、数字、下划线、点、连字符: " + key, "WARNING", keyRaw);
+        }
+
+        if (seenKeys.contains(key)) {
+            addIssue(result, keyLine, "DUPLICATE_KEY", "发现重复的 key: " + key, "ERROR", keyRaw);
+        } else {
+            seenKeys.add(key);
         }
     }
 

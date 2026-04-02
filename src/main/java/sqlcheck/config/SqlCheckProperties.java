@@ -4,13 +4,19 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.ArrayList;
+import java.util.List;
 
 @ConfigurationProperties(prefix = "sqlcheck")
 public class SqlCheckProperties {
 
     private String sqlDir = "sql";
     private String apolloDir = "apollo";
-    private String outputDir = "output";
+    private String sqlFileNamePattern = "^(?<database>[a-zA-Z0-9_]+)_(?<type>ddl|dml)_(?<submitter>[a-zA-Z0-9_]+)\\.sql$";
+    private String aggregationFileNamePattern = "^(?<database>[a-zA-Z0-9_]+)_(?<type>ddl|dml)_(?<submitter>[a-zA-Z0-9_]+)\\.sql$";
+    private List<String> aggregationSkipPrefixes = new ArrayList<>();
+    private boolean databaseCheckEnabled = false;
+    private String databaseName = "";
 
     public String getSqlDir() {
         return sqlDir;
@@ -28,12 +34,44 @@ public class SqlCheckProperties {
         this.apolloDir = apolloDir;
     }
 
-    public String getOutputDir() {
-        return outputDir;
+    public String getSqlFileNamePattern() {
+        return sqlFileNamePattern;
     }
 
-    public void setOutputDir(String outputDir) {
-        this.outputDir = outputDir;
+    public void setSqlFileNamePattern(String sqlFileNamePattern) {
+        this.sqlFileNamePattern = sqlFileNamePattern;
+    }
+
+    public String getAggregationFileNamePattern() {
+        return aggregationFileNamePattern;
+    }
+
+    public void setAggregationFileNamePattern(String aggregationFileNamePattern) {
+        this.aggregationFileNamePattern = aggregationFileNamePattern;
+    }
+
+    public List<String> getAggregationSkipPrefixes() {
+        return aggregationSkipPrefixes;
+    }
+
+    public void setAggregationSkipPrefixes(List<String> aggregationSkipPrefixes) {
+        this.aggregationSkipPrefixes = aggregationSkipPrefixes == null ? new ArrayList<>() : aggregationSkipPrefixes;
+    }
+
+    public boolean isDatabaseCheckEnabled() {
+        return databaseCheckEnabled;
+    }
+
+    public void setDatabaseCheckEnabled(boolean databaseCheckEnabled) {
+        this.databaseCheckEnabled = databaseCheckEnabled;
+    }
+
+    public String getDatabaseName() {
+        return databaseName;
+    }
+
+    public void setDatabaseName(String databaseName) {
+        this.databaseName = databaseName;
     }
 
     public Path resolveSqlDir() {
@@ -44,8 +82,19 @@ public class SqlCheckProperties {
         return resolvePath(apolloDir);
     }
 
+    /** 报告目录：sql-dir 的父目录下的 report/ */
     public Path resolveOutputDir() {
-        return resolvePath(outputDir);
+        return resolveSqlDir().getParent().resolve("report");
+    }
+
+    /** 整合输入目录：与 sql-dir 相同 */
+    public Path resolveAggregationInputDir() {
+        return resolveSqlDir();
+    }
+
+    /** 整合输出目录：sql-dir 的父目录下的 aggregation/ */
+    public Path resolveAggregationOutputDir() {
+        return resolveSqlDir().getParent().resolve("aggregation");
     }
 
     public Path resolvePath(String configuredPath) {

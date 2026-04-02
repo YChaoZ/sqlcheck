@@ -1,0 +1,21 @@
+app:
+  id: test-app
+  name: Test Application
+  version: 1.0.0
+
+spring:
+  datasource:
+    url: jdbc:mysql://localhost:3306/test
+    username: root
+    password: ${db.password}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    hikari:
+      maximum-pool-size: 10
+      minimum-idle: 5
+      connection-timeout: 30000
+
+feature:
+  enabled: true
+  timeout: 5000
+  retry:
+    max-attempts: 3

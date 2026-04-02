@@ -1,0 +1,15 @@
+{
+  "app": {
+    "name": "test-app",
+    "version": "1.0.0"
+  },
+  "db": {
+    "url": "jdbc:mysql://localhost:3306/test",
+    "username": "root",
+    "password": "password"
+  },
+  "feature": {
+    "enabled": true,
+    "timeout": 5000
+  }
+}

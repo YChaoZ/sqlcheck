@@ -1,0 +1,29 @@
+# Apollo Script YAML 格式 - 正常示例
+insert:
+  app.name:
+    value: "test-app"
+    comment: "应用名称"
+insert:
+  app.version:
+    value: "1.0.0"
+    comment: 应用版本
+insert:
+  db.url:
+    value: jdbc:mysql://localhost:3306/test
+    comment: 数据库连接
+insert:
+  db.maxPoolSize:
+    value: "10"
+    comment: 最大连接池
+update:
+  app.version:
+    value: "1.0.1"
+    comment: 更新版本
+update:
+  db.maxPoolSize:
+    value: "20"
+    comment: 增加连接池
+delete:
+  old.key:
+delete:
+  unused.config:

@@ -1,0 +1,12 @@
+{
+  "app": {
+    "name": "test-app",
+    "version": "1.0.0"
+  },
+  "app": {
+    "version": "duplicate"
+  },
+  "db": {
+    "url": "jdbc:mysql://localhost:3306/test"
+  }
+}

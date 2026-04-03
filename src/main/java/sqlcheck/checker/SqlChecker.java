@@ -221,9 +221,13 @@ public class SqlChecker {
         }
 
         String configuredDatabase = properties.getDatabaseName() == null ? "" : properties.getDatabaseName().trim();
+
         if (configuredDatabase.isEmpty()) {
-            addIssue(result, context, context.startLine, "CONFIG_ERROR", "启用数据库前缀检查时必须配置database-name", "ERROR");
-            return;
+            configuredDatabase = extractDatabaseName(result.getFileName());
+            if (configuredDatabase == null || configuredDatabase.isEmpty()) {
+                addIssue(result, context, context.startLine, "CONFIG_ERROR", "启用数据库前缀检查时文件名必须符合规范: 数据库名_ddl|dml_提交人.sql", "ERROR");
+                return;
+            }
         }
 
         if (USE_DATABASE.matcher(context.analysisStatement).find()) {
@@ -248,6 +252,11 @@ public class SqlChecker {
                 addIssue(result, context, issueLine, "SYNTAX_ERROR", "表引用必须使用配置的数据库名 " + configuredDatabase + ": " + reference, "ERROR");
             }
         }
+    }
+
+    private String extractDatabaseName(String fileName) {
+        Matcher m = Pattern.compile("^([a-zA-Z0-9_]+)_(ddl|dml)_[a-zA-Z0-9_]+\\.sql$", Pattern.CASE_INSENSITIVE).matcher(fileName);
+        return m.matches() ? m.group(1) : null;
     }
 
     private void checkChinesePunctuationInStatement(CheckResult result, StatementContext context) {

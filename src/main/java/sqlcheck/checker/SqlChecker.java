@@ -220,6 +220,10 @@ public class SqlChecker {
             return;
         }
 
+        if (isCommentOnlyStatement(context.originalStatement)) {
+            return;
+        }
+
         String configuredDatabase = properties.getDatabaseName() == null ? "" : properties.getDatabaseName().trim();
 
         if (configuredDatabase.isEmpty()) {
@@ -251,6 +255,19 @@ public class SqlChecker {
                 addIssue(result, context, issueLine, "SYNTAX_ERROR", "表引用必须使用配置的数据库名 " + configuredDatabase + ": " + reference, "ERROR");
             }
         }
+    }
+
+    private boolean isCommentOnlyStatement(String statement) {
+        String trimmed = statement.trim();
+        if (trimmed.isEmpty()) {
+            return true;
+        }
+        String noComments = trimmed
+            .replaceAll("(?m)^\\s*--.*$", "")
+            .replaceAll("(?m)^\\s*#.*$", "")
+            .replaceAll("/\\*.*?\\*/", "")
+            .trim();
+        return noComments.isEmpty();
     }
 
     private String extractDatabaseName(String fileName) {

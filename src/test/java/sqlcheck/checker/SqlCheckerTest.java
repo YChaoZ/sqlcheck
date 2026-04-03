@@ -179,6 +179,23 @@ class SqlCheckerTest {
     }
 
     @Test
+    void shouldExtractDatabaseNameFromFileName() throws IOException {
+        SqlCheckProperties props = new SqlCheckProperties();
+        props.setDatabaseCheckEnabled(true);
+        SqlChecker dbChecker = new SqlChecker(props);
+
+        Path file = Files.createTempFile("biz_ddl_alice", ".sql");
+        Files.write(file, "CREATE TABLE user_account (id BIGINT);".getBytes(StandardCharsets.UTF_8));
+
+        List<CheckResult> results = dbChecker.checkFile(file.toFile());
+        CheckResult result = results.get(0);
+
+        assertTrue(hasIssue(result, "SYNTAX_ERROR", "表引用必须写成 数据库名.表名"));
+
+        Files.delete(file);
+    }
+
+    @Test
     void shouldKeepOriginalSourceLineWhenAnalysisMasksCommentOrString() throws IOException {
         String longColumn = repeated('c', 65);
         CheckResult result = checkSql("CREATE TABLE test_table (\n" +

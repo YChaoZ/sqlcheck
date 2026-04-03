@@ -171,6 +171,14 @@ class SqlCheckerTest {
     }
 
     @Test
+    void shouldNotCheckDatabasePrefixForComments() throws IOException {
+        SqlChecker dbChecker = new SqlChecker(databaseProperties("biz_db", true));
+        CheckResult result = checkSql(dbChecker, "-- 这是一个注释\nCREATE TABLE biz_db.user_account (id BIGINT);\n");
+
+        assertFalse(hasIssue(result, "SYNTAX_ERROR", "数据库名.表名"));
+    }
+
+    @Test
     void shouldKeepOriginalSourceLineWhenAnalysisMasksCommentOrString() throws IOException {
         String longColumn = repeated('c', 65);
         CheckResult result = checkSql("CREATE TABLE test_table (\n" +

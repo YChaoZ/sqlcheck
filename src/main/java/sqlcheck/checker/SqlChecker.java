@@ -225,7 +225,6 @@ public class SqlChecker {
         if (configuredDatabase.isEmpty()) {
             configuredDatabase = extractDatabaseName(result.getFileName());
             if (configuredDatabase == null || configuredDatabase.isEmpty()) {
-                addIssue(result, context, context.startLine, "CONFIG_ERROR", "启用数据库前缀检查时文件名必须符合规范: 数据库名_ddl|dml_提交人.sql", "ERROR");
                 return;
             }
         }

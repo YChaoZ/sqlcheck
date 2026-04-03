@@ -57,6 +57,8 @@ public class ApolloChecker {
         Set<String> keys = new LinkedHashSet<>();
         Map<String, Integer> keyLines = new HashMap<>();
 
+        checkYamlSyntax(result, content);
+
         for (int i = 0; i < lines.length; i++) {
             String line = lines[i];
             int lineNum = i + 1;
@@ -281,6 +283,7 @@ public class ApolloChecker {
     private void checkJson(CheckResult result, String content) {
         checkCommonIssues(result, content);
         checkJsonDuplicateKeysText(result, content);
+        checkYamlSyntax(result, content);
     }
 
     private void checkJsonDuplicateKeysText(CheckResult result, String content) {

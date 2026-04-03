@@ -138,6 +138,7 @@ public class SqlChecker {
             checkDDLRepeatable(result, context);
             checkDDLSyntax(result, context);
             checkDDLBestPractice(result, context, upperStmt);
+            checkBracketBalancing(result, context);
             if (declaredType != null) {
                 checkStatementMatchesDeclaredType(result, context, declaredType);
             }
@@ -893,6 +894,55 @@ public class SqlChecker {
             this.number = number;
             this.originalText = originalText;
             this.analysisText = analysisText;
+        }
+    }
+
+    private void checkBracketBalancing(CheckResult result, StatementContext context) {
+        String sql = context.analysisStatement;
+        java.util.Stack<Character> stack = new java.util.Stack<>();
+        boolean inString = false;
+        char stringChar = 0;
+
+        for (int i = 0; i < sql.length(); i++) {
+            char c = sql.charAt(i);
+
+            if ((c == '\'' || c == '"') && !inString) {
+                inString = true;
+                stringChar = c;
+            } else if (c == stringChar && inString) {
+                inString = false;
+                stringChar = 0;
+            }
+
+            if (!inString) {
+                if (c == '(' || c == '[' || c == '{') {
+                    stack.push(c);
+                } else if (c == ')') {
+                    if (stack.isEmpty() || stack.peek() != '(') {
+                        addIssue(result, context, context.startLine, "BRACKET_MISMATCH", "左右括号不匹配: 缺少 '('", "ERROR");
+                        return;
+                    }
+                    stack.pop();
+                } else if (c == ']') {
+                    if (stack.isEmpty() || stack.peek() != '[') {
+                        addIssue(result, context, context.startLine, "BRACKET_MISMATCH", "左右括号不匹配: 缺少 '['", "ERROR");
+                        return;
+                    }
+                    stack.pop();
+                } else if (c == '}') {
+                    if (stack.isEmpty() || stack.peek() != '{') {
+                        addIssue(result, context, context.startLine, "BRACKET_MISMATCH", "左右括号不匹配: 缺少 '{'", "ERROR");
+                        return;
+                    }
+                    stack.pop();
+                }
+            }
+        }
+
+        if (!stack.isEmpty()) {
+            char missing = stack.peek();
+            String missingBracket = missing == '(' ? "')'" : missing == '[' ? "']'" : "'}'";
+            addIssue(result, context, context.startLine, "BRACKET_MISMATCH", "左右括号不匹配: 缺少 " + missingBracket, "ERROR");
         }
     }
 }

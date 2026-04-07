@@ -121,6 +121,12 @@ public class ApolloChecker {
                     if (value.contains(";") || value.contains("--")) {
                         addIssue(result, lineNum, "FORMAT", "VALUE中可能包含非法字符，请检查", "WARNING", rawLine);
                     }
+                    if (value.length() >= 2 && value.startsWith("\"") && value.endsWith("\"")) {
+                        String inner = value.substring(1, value.length() - 1);
+                        if (!inner.equals(inner.trim())) {
+                            addIssue(result, lineNum, "FORMAT", "VALUE值首尾存在多余空格: " + value, "ERROR", rawLine);
+                        }
+                    }
                 }
             }
         } else if (!line.isEmpty() && !line.startsWith("#")) {
@@ -412,6 +418,16 @@ public class ApolloChecker {
             }
 
             validateYamlPathSegments(result, canonicalPath, lineNum, line);
+
+            if ("value".equals(keyParseResult.key) && !keyParseResult.value.isEmpty()) {
+                String val = keyParseResult.value;
+                if (val.length() >= 2 && val.startsWith("\"") && val.endsWith("\"")) {
+                    String inner = val.substring(1, val.length() - 1);
+                    if (!inner.equals(inner.trim())) {
+                        addIssue(result, lineNum, "FORMAT", "VALUE值首尾存在多余空格: " + val, "ERROR", line);
+                    }
+                }
+            }
 
             boolean container = keyParseResult.value.isEmpty();
             boolean hasPathConflict = registerYamlPathConflicts(result, scalarPaths, containerPaths, canonicalPath, lineNum, line, container);

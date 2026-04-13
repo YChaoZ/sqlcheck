@@ -7,6 +7,7 @@ import sqlcheck.checker.ApolloChecker;
 import sqlcheck.checker.SqlChecker;
 import sqlcheck.config.SqlCheckProperties;
 import sqlcheck.model.CheckResult;
+import sqlcheck.packaging.PackageHandler;
 import sqlcheck.report.ReportGenerator;
 
 import java.io.File;
@@ -198,8 +199,19 @@ public class SqlCheckService {
             for (Path output : outputs) {
                 System.out.println("  " + output);
             }
+
+            packageResults();
         } catch (IllegalStateException e) {
             System.out.println("\n脚本整合失败: " + e.getMessage());
+        }
+    }
+
+    private void packageResults() {
+        try {
+            PackageHandler handler = new PackageHandler(properties);
+            handler.packageResults();
+        } catch (Exception e) {
+            System.out.println("\n打包失败: " + e.getMessage());
         }
     }
 

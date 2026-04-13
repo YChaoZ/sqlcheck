@@ -17,6 +17,7 @@ public class SqlCheckProperties {
     private List<String> aggregationSkipPrefixes = new ArrayList<>();
     private boolean databaseCheckEnabled = false;
     private String databaseName = "";
+    private PackageConfig packageConfig = new PackageConfig();
 
     public String getSqlDir() {
         return sqlDir;
@@ -74,6 +75,14 @@ public class SqlCheckProperties {
         this.databaseName = databaseName;
     }
 
+    public PackageConfig getPackageConfig() {
+        return packageConfig;
+    }
+
+    public void setPackageConfig(PackageConfig packageConfig) {
+        this.packageConfig = packageConfig;
+    }
+
     public Path resolveSqlDir() {
         return resolvePath(sqlDir);
     }
@@ -97,11 +106,57 @@ public class SqlCheckProperties {
         return resolveSqlDir().getParent().resolve("aggregation");
     }
 
+    public Path resolvePackageSourceDir() {
+        if (packageConfig.getSourceDir() == null || packageConfig.getSourceDir().trim().isEmpty()) {
+            return null;
+        }
+        return resolvePath(packageConfig.getSourceDir());
+    }
+
     public Path resolvePath(String configuredPath) {
         Path rawPath = Paths.get(configuredPath == null || configuredPath.trim().isEmpty() ? "." : configuredPath.trim());
         if (rawPath.isAbsolute()) {
             return rawPath.normalize();
         }
         return Paths.get(System.getProperty("user.dir")).resolve(rawPath).normalize().toAbsolutePath();
+    }
+
+    public static class PackageConfig {
+        private String zipName = "NBMS";
+        private String tarName = "diomdb_20260144";
+        private String sourceDir = "./scripts";
+        private boolean enabled = true;
+
+        public String getZipName() {
+            return zipName;
+        }
+
+        public void setZipName(String zipName) {
+            this.zipName = zipName;
+        }
+
+        public String getTarName() {
+            return tarName;
+        }
+
+        public void setTarName(String tarName) {
+            this.tarName = tarName;
+        }
+
+        public String getSourceDir() {
+            return sourceDir;
+        }
+
+        public void setSourceDir(String sourceDir) {
+            this.sourceDir = sourceDir;
+        }
+
+        public boolean isEnabled() {
+            return enabled;
+        }
+
+        public void setEnabled(boolean enabled) {
+            this.enabled = enabled;
+        }
     }
 }

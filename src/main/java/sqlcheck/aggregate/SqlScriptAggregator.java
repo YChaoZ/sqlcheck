@@ -1,6 +1,7 @@
 package sqlcheck.aggregate;
 
 import sqlcheck.config.SqlCheckProperties;
+import sqlcheck.sql.SqlStatementSplitter;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -151,22 +152,20 @@ public class SqlScriptAggregator {
         } catch (IOException e) {
             throw new IllegalStateException("读取脚本失败: " + file, e);
         }
-        String[] statements = content.split(";");
-        for (String raw : statements) {
-            String upper = raw.trim().toUpperCase();
-            if (upper.isEmpty()) {
+        for (SqlStatementSplitter.SqlStatement statement : SqlStatementSplitter.split(content)) {
+            if (statement.isCommentOnly()) {
                 continue;
             }
-            // strip leading comments
-            while (upper.startsWith("--") || upper.startsWith("#") || upper.startsWith("/*")) {
-                int newline = upper.indexOf('\n');
-                if (upper.startsWith("/*")) {
-                    int end = upper.indexOf("*/");
-                    upper = end >= 0 ? upper.substring(end + 2).trim() : "";
-                } else {
-                    upper = newline >= 0 ? upper.substring(newline + 1).trim() : "";
-                }
+            if (!statement.getSuspiciousBoundaries().isEmpty()) {
+                SqlStatementSplitter.SuspiciousBoundary boundary = statement.getSuspiciousBoundaries().get(0);
+                throw new IllegalStateException("SQL文件 " + file.getFileName()
+                    + " 在第" + boundary.getPreviousStatementEndLine() + "行附近检测到语句缺少分号(;)");
             }
+            if (!statement.isTerminatedBySemicolon()) {
+                throw new IllegalStateException("SQL文件 " + file.getFileName()
+                    + " 的第" + statement.getLastMeaningfulLine() + "行语句未以分号(;)结尾");
+            }
+            String upper = stripLeadingComments(statement.getAnalysisStatement()).trim().toUpperCase();
             if (upper.isEmpty()) {
                 continue;
             }
@@ -186,6 +185,20 @@ public class SqlScriptAggregator {
                 throw new IllegalStateException("DML文件 " + file.getFileName() + " 包含DDL语句(" + keyword + ")，不允许混合类型");
             }
         }
+    }
+
+    private String stripLeadingComments(String statement) {
+        String upper = statement == null ? "" : statement.trim();
+        while (upper.startsWith("--") || upper.startsWith("#") || upper.startsWith("/*")) {
+            int newline = upper.indexOf('\n');
+            if (upper.startsWith("/*")) {
+                int end = upper.indexOf("*/");
+                upper = end >= 0 ? upper.substring(end + 2).trim() : "";
+            } else {
+                upper = newline >= 0 ? upper.substring(newline + 1).trim() : "";
+            }
+        }
+        return upper;
     }
 
     private boolean shouldSkip(Path path) {

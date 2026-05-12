@@ -15,9 +15,8 @@ sqlcheck:
   database-check-enabled: false
   # 数据库名，启用数据库前缀检查时必填
   database-name: ""
-  # 打包配置
-  package:
-    enabled: true
-    zip-name: NBMS
-    tar-name: diomdb_20260144
-    source-dir: ./scripts
+  # 打包配置（扁平化）
+  package-enabled: true
+  package-zip-name: NBMS
+  package-tar-name: diomdb_20260144
+  package-source-dir: ./scripts

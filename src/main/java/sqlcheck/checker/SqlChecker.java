@@ -2,6 +2,7 @@ package sqlcheck.checker;
 
 import sqlcheck.config.SqlCheckProperties;
 import sqlcheck.model.CheckResult;
+import sqlcheck.sql.SqlStatementSplitter;
 
 import java.io.File;
 import java.io.IOException;
@@ -121,7 +122,9 @@ public class SqlChecker {
 
         try {
             String content = new String(Files.readAllBytes(file.toPath()), StandardCharsets.UTF_8);
-            statements = splitStatements(content);
+            for (SqlStatementSplitter.SqlStatement statement : SqlStatementSplitter.split(content)) {
+                statements.add(new StatementContext(statement));
+            }
         } catch (IOException e) {
             e.printStackTrace();
         }
@@ -133,6 +136,7 @@ public class SqlChecker {
         for (StatementContext context : statements) {
             String upperStmt = context.analysisStatement.toUpperCase();
 
+            checkStatementTermination(result, context);
             checkChinesePunctuationInStatement(result, context);
             checkDatabaseRules(result, context);
             checkDDLRepeatable(result, context);
@@ -182,6 +186,22 @@ public class SqlChecker {
         } else if ("dml".equals(declaredType) && isDdl) {
             addIssue(result, context, context.startLine, "TYPE_MISMATCH",
                 "DML文件中包含DDL语句(" + upper.split("\\s+")[0] + ")，DML文件只允许 INSERT/REPLACE/UPDATE/DELETE", "ERROR");
+        }
+    }
+
+    private void checkStatementTermination(CheckResult result, StatementContext context) {
+        if (isCommentOnlyStatement(context.originalStatement)) {
+            return;
+        }
+
+        for (SuspiciousBoundary boundary : context.suspiciousBoundaries) {
+            addIssue(result, context, boundary.previousStatementEndLine, "MISSING_SEMICOLON",
+                "检测到新语句开始，上一条SQL可能缺少分号(;)", "ERROR");
+        }
+
+        if (!context.terminatedBySemicolon) {
+            addIssue(result, context, context.lastMeaningfulLine, "MISSING_SEMICOLON",
+                "SQL语句必须以分号(;)结尾", "ERROR");
         }
     }
 
@@ -749,138 +769,36 @@ public class SqlChecker {
         return null;
     }
 
-    private List<StatementContext> splitStatements(String content) {
-        List<StatementContext> statements = new ArrayList<>();
-        StringBuilder original = new StringBuilder();
-        StringBuilder analysis = new StringBuilder();
-        int statementStartLine = 1;
-        int lineNumber = 1;
-        boolean inSingleQuote = false;
-        boolean inLineComment = false;
-        boolean inBlockComment = false;
-        statementStartLine = -1;
-
-        for (int i = 0; i < content.length(); i++) {
-            char current = content.charAt(i);
-            char next = i + 1 < content.length() ? content.charAt(i + 1) : '\0';
-
-            if (!inSingleQuote && !inLineComment && !inBlockComment && original.length() == 0) {
-                if (Character.isWhitespace(current)) {
-                    if (current == '\n') {
-                        lineNumber++;
-                    }
-                    continue;
-                }
-                statementStartLine = lineNumber;
-            }
-
-            if (inSingleQuote) {
-                original.append(current);
-                analysis.append(maskChar(current));
-                if (current == '\n') {
-                    lineNumber++;
-                }
-                if (current == '\'' && next == '\'') {
-                    original.append(next);
-                    analysis.append(maskChar(next));
-                    i++;
-                } else if (current == '\'') {
-                    inSingleQuote = false;
-                }
-            } else if (inLineComment) {
-                original.append(current);
-                analysis.append(maskChar(current));
-                if (current == '\n') {
-                    inLineComment = false;
-                    lineNumber++;
-                }
-            } else if (inBlockComment) {
-                original.append(current);
-                analysis.append(maskChar(current));
-                if (current == '*' && next == '/') {
-                    original.append(next);
-                    analysis.append(maskChar(next));
-                    i++;
-                    inBlockComment = false;
-                }
-                if (current == '\n') {
-                    lineNumber++;
-                }
-            } else {
-                if (current == '\'') {
-                    inSingleQuote = true;
-                    original.append(current);
-                    analysis.append(maskChar(current));
-                } else if (current == '-' && next == '-') {
-                    inLineComment = true;
-                    original.append(current).append(next);
-                    analysis.append(maskChar(current)).append(maskChar(next));
-                    i++;
-                } else if (current == '#') {
-                    inLineComment = true;
-                    original.append(current);
-                    analysis.append(maskChar(current));
-                } else if (current == '/' && next == '*') {
-                    inBlockComment = true;
-                    original.append(current).append(next);
-                    analysis.append(maskChar(current)).append(maskChar(next));
-                    i++;
-                } else if (current == ';') {
-                    addStatement(statements, original, analysis, statementStartLine);
-                    statementStartLine = -1;
-                } else {
-                    original.append(current);
-                    analysis.append(current);
-                    if (current == '\n') {
-                        lineNumber++;
-                    }
-                }
-            }
-        }
-
-        addStatement(statements, original, analysis, statementStartLine);
-        return statements;
-    }
-
-    private void addStatement(List<StatementContext> statements, StringBuilder original, StringBuilder analysis, int startLine) {
-        String originalStatement = trimTrailingWhitespace(original.toString());
-        String analysisStatement = trimTrailingWhitespace(analysis.toString());
-        if (!originalStatement.trim().isEmpty()) {
-            statements.add(new StatementContext(originalStatement, analysisStatement, startLine > 0 ? startLine : 1));
-        }
-        original.setLength(0);
-        analysis.setLength(0);
-    }
-
-    private String trimTrailingWhitespace(String text) {
-        int end = text.length();
-        while (end > 0 && Character.isWhitespace(text.charAt(end - 1))) {
-            end--;
-        }
-        return text.substring(0, end);
-    }
-
-    private char maskChar(char ch) {
-        return ch == '\n' ? '\n' : ' ';
-    }
-
     private static class StatementContext {
         private final String originalStatement;
         private final String analysisStatement;
         private final int startLine;
+        private final int endLine;
+        private final int firstMeaningfulLine;
+        private final int lastMeaningfulLine;
+        private final boolean terminatedBySemicolon;
         private final List<StatementLine> lines;
+        private final List<SuspiciousBoundary> suspiciousBoundaries;
 
-        private StatementContext(String originalStatement, String analysisStatement, int startLine) {
-            this.originalStatement = originalStatement;
-            this.analysisStatement = analysisStatement;
-            this.startLine = startLine;
+        private StatementContext(SqlStatementSplitter.SqlStatement statement) {
+            this.originalStatement = statement.getOriginalStatement();
+            this.analysisStatement = statement.getAnalysisStatement();
+            this.startLine = statement.getStartLine();
+            this.endLine = statement.getEndLine();
+            this.firstMeaningfulLine = statement.getFirstMeaningfulLine();
+            this.lastMeaningfulLine = statement.getLastMeaningfulLine();
+            this.terminatedBySemicolon = statement.isTerminatedBySemicolon();
             this.lines = new ArrayList<>();
-
-            String[] originalLines = originalStatement.split("\\n", -1);
-            String[] analysisLines = analysisStatement.split("\\n", -1);
-            for (int i = 0; i < originalLines.length; i++) {
-                String analLine = i < analysisLines.length ? analysisLines[i] : "";
-                lines.add(new StatementLine(startLine + i, originalLines[i], analLine));
+            for (SqlStatementSplitter.StatementLine line : statement.getLines()) {
+                this.lines.add(new StatementLine(line.getNumber(), line.getOriginalText(), line.getAnalysisText()));
+            }
+            this.suspiciousBoundaries = new ArrayList<>();
+            for (SqlStatementSplitter.SuspiciousBoundary boundary : statement.getSuspiciousBoundaries()) {
+                this.suspiciousBoundaries.add(new SuspiciousBoundary(
+                    boundary.getKeyword(),
+                    boundary.getLine(),
+                    boundary.getPreviousStatementEndLine()
+                ));
             }
         }
     }
@@ -894,6 +812,18 @@ public class SqlChecker {
             this.number = number;
             this.originalText = originalText;
             this.analysisText = analysisText;
+        }
+    }
+
+    private static class SuspiciousBoundary {
+        private final String keyword;
+        private final int line;
+        private final int previousStatementEndLine;
+
+        private SuspiciousBoundary(String keyword, int line, int previousStatementEndLine) {
+            this.keyword = keyword;
+            this.line = line;
+            this.previousStatementEndLine = previousStatementEndLine;
         }
     }
 

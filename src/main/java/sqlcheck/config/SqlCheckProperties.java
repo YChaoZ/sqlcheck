@@ -17,7 +17,11 @@ public class SqlCheckProperties {
     private List<String> aggregationSkipPrefixes = new ArrayList<>();
     private boolean databaseCheckEnabled = false;
     private String databaseName = "";
-    private PackageConfig packageConfig = new PackageConfig();
+
+    private String packageZipName = "NBMS";
+    private String packageTarName = "diomdb_20260144";
+    private String packageSourceDir = "./scripts";
+    private boolean packageEnabled = false;
 
     public String getSqlDir() {
         return sqlDir;
@@ -75,12 +79,36 @@ public class SqlCheckProperties {
         this.databaseName = databaseName;
     }
 
-    public PackageConfig getPackageConfig() {
-        return packageConfig;
+    public String getPackageZipName() {
+        return packageZipName;
     }
 
-    public void setPackageConfig(PackageConfig packageConfig) {
-        this.packageConfig = packageConfig;
+    public void setPackageZipName(String packageZipName) {
+        this.packageZipName = packageZipName;
+    }
+
+    public String getPackageTarName() {
+        return packageTarName;
+    }
+
+    public void setPackageTarName(String packageTarName) {
+        this.packageTarName = packageTarName;
+    }
+
+    public String getPackageSourceDir() {
+        return packageSourceDir;
+    }
+
+    public void setPackageSourceDir(String packageSourceDir) {
+        this.packageSourceDir = packageSourceDir;
+    }
+
+    public boolean isPackageEnabled() {
+        return packageEnabled;
+    }
+
+    public void setPackageEnabled(boolean packageEnabled) {
+        this.packageEnabled = packageEnabled;
     }
 
     public Path resolveSqlDir() {
@@ -91,26 +119,23 @@ public class SqlCheckProperties {
         return resolvePath(apolloDir);
     }
 
-    /** 报告目录：sql-dir 的父目录下的 report/ */
     public Path resolveOutputDir() {
         return resolveSqlDir().getParent().resolve("report");
     }
 
-    /** 整合输入目录：与 sql-dir 相同 */
     public Path resolveAggregationInputDir() {
         return resolveSqlDir();
     }
 
-    /** 整合输出目录：sql-dir 的父目录下的 aggregation/ */
     public Path resolveAggregationOutputDir() {
         return resolveSqlDir().getParent().resolve("aggregation");
     }
 
     public Path resolvePackageSourceDir() {
-        if (packageConfig.getSourceDir() == null || packageConfig.getSourceDir().trim().isEmpty()) {
+        if (packageSourceDir == null || packageSourceDir.trim().isEmpty()) {
             return null;
         }
-        return resolvePath(packageConfig.getSourceDir());
+        return resolvePath(packageSourceDir);
     }
 
     public Path resolvePath(String configuredPath) {
@@ -119,44 +144,5 @@ public class SqlCheckProperties {
             return rawPath.normalize();
         }
         return Paths.get(System.getProperty("user.dir")).resolve(rawPath).normalize().toAbsolutePath();
-    }
-
-    public static class PackageConfig {
-        private String zipName = "NBMS";
-        private String tarName = "diomdb_20260144";
-        private String sourceDir = "./scripts";
-        private boolean enabled = true;
-
-        public String getZipName() {
-            return zipName;
-        }
-
-        public void setZipName(String zipName) {
-            this.zipName = zipName;
-        }
-
-        public String getTarName() {
-            return tarName;
-        }
-
-        public void setTarName(String tarName) {
-            this.tarName = tarName;
-        }
-
-        public String getSourceDir() {
-            return sourceDir;
-        }
-
-        public void setSourceDir(String sourceDir) {
-            this.sourceDir = sourceDir;
-        }
-
-        public boolean isEnabled() {
-            return enabled;
-        }
-
-        public void setEnabled(boolean enabled) {
-            this.enabled = enabled;
-        }
     }
 }

@@ -117,6 +117,58 @@ class SqlCheckerTest {
 
         assertFalse(hasIssue(result, "REPEATABLE", "存在 INSERT 语句但无对应 DELETE"));
         assertFalse(hasIssue(result, "DANGEROUS", "DELETE语句缺少WHERE条件"));
+        assertFalse(hasIssue(result, "MISSING_SEMICOLON", null));
+    }
+
+    @Test
+    void shouldAcceptStatementTerminatedBySemicolon() throws IOException {
+        CheckResult result = checkSql("INSERT INTO t(id, txt) VALUES (1, 'a;b');\n");
+
+        assertFalse(hasIssue(result, "MISSING_SEMICOLON", null));
+    }
+
+    @Test
+    void shouldReportMissingSemicolonAtEndOfFile() throws IOException {
+        CheckResult result = checkSql("INSERT INTO t(id, txt) VALUES (1, 'demo')\n");
+
+        CheckResult.Issue issue = findIssue(result, "MISSING_SEMICOLON", "SQL语句必须以分号");
+        assertNotNull(issue);
+        assertEquals(1, issue.getLine());
+        assertEquals("INSERT INTO t(id, txt) VALUES (1, 'demo')", issue.getSourceLineText());
+    }
+
+    @Test
+    void shouldReportMissingSemicolonBeforeNextStatement() throws IOException {
+        CheckResult result = checkSql("CREATE TABLE test_table (\n" +
+            "    id BIGINT\n" +
+            ")\n" +
+            "INSERT INTO test_table(id) VALUES (1);\n");
+
+        CheckResult.Issue issue = findIssue(result, "MISSING_SEMICOLON", "上一条SQL可能缺少分号");
+        assertNotNull(issue);
+        assertEquals(3, issue.getLine());
+        assertEquals(")", issue.getSourceLineText());
+    }
+
+    @Test
+    void shouldIgnoreSemicolonRuleForCommentOnlyContent() throws IOException {
+        CheckResult result = checkSql("-- only comment\n" +
+            "# second comment\n" +
+            "/* block ; comment */\n");
+
+        assertFalse(hasIssue(result, "MISSING_SEMICOLON", null));
+    }
+
+    @Test
+    void shouldLocateMissingSemicolonOnLastMeaningfulLineOfMultilineStatement() throws IOException {
+        CheckResult result = checkSql("CREATE TABLE test_table (\n" +
+            "    id BIGINT PRIMARY KEY\n" +
+            ")\n");
+
+        CheckResult.Issue issue = findIssue(result, "MISSING_SEMICOLON", "SQL语句必须以分号");
+        assertNotNull(issue);
+        assertEquals(3, issue.getLine());
+        assertEquals(")", issue.getSourceLineText());
     }
 
     @Test

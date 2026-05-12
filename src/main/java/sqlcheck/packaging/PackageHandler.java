@@ -29,18 +29,19 @@ public class PackageHandler {
     }
 
     public void packageResults() {
-        System.out.println("\n=== 打包配置 ===");
-        System.out.println("  enabled: " + properties.getPackageConfig().isEnabled());
-        System.out.println("  zipName: " + properties.getPackageConfig().getZipName());
-        System.out.println("  tarName: " + properties.getPackageConfig().getTarName());
-        System.out.println("  sourceDir: " + properties.getPackageConfig().getSourceDir());
-        
-        if (!properties.getPackageConfig().isEnabled()) {
+        if (!properties.isPackageEnabled()) {
             System.out.println("\n打包功能未启用，跳过打包。");
             return;
         }
 
-        SqlCheckProperties.PackageConfig config = properties.getPackageConfig();
+        System.out.println("\n=== 打包配置 ===");
+        System.out.println("  enabled: " + properties.isPackageEnabled());
+        System.out.println("  zipName: " + properties.getPackageZipName());
+        System.out.println("  tarName: " + properties.getPackageTarName());
+        System.out.println("  sourceDir: " + properties.getPackageSourceDir());
+
+        String tarName = properties.getPackageTarName();
+        String zipName = properties.getPackageZipName();
         Path aggregationDir = properties.resolveAggregationOutputDir();
         Path apolloDir = properties.resolveApolloDir();
         Path sourceDir = properties.resolvePackageSourceDir();
@@ -50,8 +51,6 @@ public class PackageHandler {
             return;
         }
 
-        String tarName = config.getTarName();
-        String zipName = config.getZipName();
         String timestamp = extractTimestamp(tarName);
 
         try {
@@ -213,7 +212,7 @@ public class PackageHandler {
     private void createTarArchive(Path sourceDir, Path targetFile) throws IOException {
         try (TarArchiveOutputStream tarOut = new TarArchiveOutputStream(new FileOutputStream(targetFile.toFile()))) {
             tarOut.setLongFileMode(TarArchiveOutputStream.LONGFILE_GNU);
-            addToTar(tarOut, sourceDir, sourceDir.getFileName().toString());
+            addToTar(tarOut, sourceDir, "./" + sourceDir.getFileName().toString());
             tarOut.finish();
         }
     }

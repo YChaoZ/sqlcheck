@@ -1,0 +1,10 @@
+app:
+  id: demo-app
+feature:
+  enabled: true
+spring:
+  datasource:
+    url: jdbc:mysql://localhost:3306/demo
+message: |
+  line: one
+  line: two

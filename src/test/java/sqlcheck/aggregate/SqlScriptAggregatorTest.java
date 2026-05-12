@@ -12,6 +12,7 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class SqlScriptAggregatorTest {
@@ -73,6 +74,39 @@ class SqlScriptAggregatorTest {
         String ddl = read(output.resolve("biz_ddl.sql"));
         assertFalse(ddl.contains("skip_biz_ddl_alice.sql"));
         assertTrue(ddl.contains("CREATE TABLE b(id BIGINT);"));
+    }
+
+    @Test
+    void shouldFailAggregationWhenStatementMissesTrailingSemicolon() throws IOException {
+        Path baseDir = Files.createTempDirectory("sql-agg-no-semicolon-");
+        Path input = Files.createDirectories(baseDir.resolve("sql"));
+
+        write(input.resolve("biz_dml_alice.sql"), "INSERT INTO a VALUES (1)");
+
+        SqlCheckProperties properties = new SqlCheckProperties();
+        properties.setSqlDir(input.toString());
+
+        SqlScriptAggregator aggregator = new SqlScriptAggregator(properties);
+        IllegalStateException exception = assertThrows(IllegalStateException.class, aggregator::aggregate);
+
+        assertTrue(exception.getMessage().contains("未以分号"));
+    }
+
+    @Test
+    void shouldFailAggregationWhenNextStatementStartsWithoutSemicolon() throws IOException {
+        Path baseDir = Files.createTempDirectory("sql-agg-stuck-statements-");
+        Path input = Files.createDirectories(baseDir.resolve("sql"));
+
+        write(input.resolve("biz_dml_alice.sql"),
+            "UPDATE a SET name = 'demo' WHERE id = 1\nDELETE FROM a WHERE id = 1;\n");
+
+        SqlCheckProperties properties = new SqlCheckProperties();
+        properties.setSqlDir(input.toString());
+
+        SqlScriptAggregator aggregator = new SqlScriptAggregator(properties);
+        IllegalStateException exception = assertThrows(IllegalStateException.class, aggregator::aggregate);
+
+        assertTrue(exception.getMessage().contains("缺少分号"));
     }
 
     private void write(Path file, String content) throws IOException {

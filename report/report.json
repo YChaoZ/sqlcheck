@@ -1,0 +1,163 @@
+{
+  "timestamp": "2026-04-17 21:08:27",
+  "summary": {
+    "totalFileResults": 9,
+    "passedFiles": 6,
+    "warningOnlyFiles": 3,
+    "problemFiles": 0,
+    "scanErrors": 0,
+    "totalIssues": 6
+  },
+  "results": [
+    {
+      "fileName": "biz_ddl_alice.sql",
+      "filePath": "/Users/yanchao/IdeaProjects/sqlcheck/sql/biz_ddl_alice.sql",
+      "fileType": "SQL",
+      "resultType": "FILE",
+      "passed": true,
+      "errorCount": 0,
+      "warningCount": 0,
+      "infoCount": 2,
+      "issues": [
+        {
+          "line": 10,
+          "type": "BEST_PRACTICE",
+          "severity": "INFO",
+          "message": "建议指定字符集 CHARSET=utf8mb4",
+          "sourceLineText": "CREATE TABLE IF NOT EXISTS biz_table2 ("
+        },
+        {
+          "line": 10,
+          "type": "BEST_PRACTICE",
+          "severity": "INFO",
+          "message": "建议指定存储引擎 ENGINE=InnoDB",
+          "sourceLineText": "CREATE TABLE IF NOT EXISTS biz_table2 ("
+        }
+      ]
+    },
+    {
+      "fileName": "biz_ddl_bob.sql",
+      "filePath": "/Users/yanchao/IdeaProjects/sqlcheck/sql/biz_ddl_bob.sql",
+      "fileType": "SQL",
+      "resultType": "FILE",
+      "passed": true,
+      "errorCount": 0,
+      "warningCount": 1,
+      "infoCount": 0,
+      "issues": [
+        {
+          "line": 1,
+          "type": "REPEATABLE",
+          "severity": "WARNING",
+          "message": "ALTER TABLE 建议添加 IF EXISTS",
+          "sourceLineText": "-- 通过版DDL示例，用于验证按提交人合并"
+        }
+      ]
+    },
+    {
+      "fileName": "biz_dml_alice.sql",
+      "filePath": "/Users/yanchao/IdeaProjects/sqlcheck/sql/biz_dml_alice.sql",
+      "fileType": "SQL",
+      "resultType": "FILE",
+      "passed": true,
+      "errorCount": 0,
+      "warningCount": 1,
+      "infoCount": 0,
+      "issues": [
+        {
+          "line": 0,
+          "type": "REPEATABLE",
+          "severity": "WARNING",
+          "message": "存在 INSERT 语句但无对应 DELETE，建议添加 DELETE 或使用 INSERT IGNORE / REPLACE INTO / ON DUPLICATE KEY UPDATE",
+          "sourceLineText": null
+        }
+      ]
+    },
+    {
+      "fileName": "order_new_ddl_david.sql",
+      "filePath": "/Users/yanchao/IdeaProjects/sqlcheck/sql/order_new_ddl_david.sql",
+      "fileType": "SQL",
+      "resultType": "FILE",
+      "passed": true,
+      "errorCount": 0,
+      "warningCount": 2,
+      "infoCount": 0,
+      "issues": [
+        {
+          "line": 15,
+          "type": "REPEATABLE",
+          "severity": "WARNING",
+          "message": "ALTER TABLE 建议添加 IF EXISTS",
+          "sourceLineText": "ALTER TABLE order_info ADD COLUMN remark VARCHAR(256) AFTER status"
+        },
+        {
+          "line": 17,
+          "type": "REPEATABLE",
+          "severity": "WARNING",
+          "message": "DROP INDEX建议添加IF EXISTS",
+          "sourceLineText": "DROP INDEX idx_user_id ON order_info"
+        }
+      ]
+    },
+    {
+      "fileName": "application.yml",
+      "filePath": "/Users/yanchao/IdeaProjects/sqlcheck/apollo/application.yml",
+      "fileType": "APOLLO",
+      "resultType": "FILE",
+      "passed": true,
+      "errorCount": 0,
+      "warningCount": 0,
+      "infoCount": 0,
+      "issues": [
+      ]
+    },
+    {
+      "fileName": "config.json",
+      "filePath": "/Users/yanchao/IdeaProjects/sqlcheck/apollo/config.json",
+      "fileType": "APOLLO",
+      "resultType": "FILE",
+      "passed": true,
+      "errorCount": 0,
+      "warningCount": 0,
+      "infoCount": 0,
+      "issues": [
+      ]
+    },
+    {
+      "fileName": "config_error.json",
+      "filePath": "/Users/yanchao/IdeaProjects/sqlcheck/apollo/config_error.json",
+      "fileType": "APOLLO",
+      "resultType": "FILE",
+      "passed": true,
+      "errorCount": 0,
+      "warningCount": 0,
+      "infoCount": 0,
+      "issues": [
+      ]
+    },
+    {
+      "fileName": "test.json",
+      "filePath": "/Users/yanchao/IdeaProjects/sqlcheck/apollo/test.json",
+      "fileType": "APOLLO",
+      "resultType": "FILE",
+      "passed": true,
+      "errorCount": 0,
+      "warningCount": 0,
+      "infoCount": 0,
+      "issues": [
+      ]
+    },
+    {
+      "fileName": "test.yml",
+      "filePath": "/Users/yanchao/IdeaProjects/sqlcheck/apollo/test.yml",
+      "fileType": "APOLLO",
+      "resultType": "FILE",
+      "passed": true,
+      "errorCount": 0,
+      "warningCount": 0,
+      "infoCount": 0,
+      "issues": [
+      ]
+    }
+  ]
+}

@@ -1,3 +1,4 @@
+-- alice
 -- 通过版SQL示例，用于验证整合流程
 CREATE TABLE IF NOT EXISTS biz_table (
     id BIGINT PRIMARY KEY AUTO_INCREMENT,
@@ -11,3 +12,6 @@ CREATE TABLE IF NOT EXISTS biz_table2 (
     id BIGINT PRIMARY KEY AUTO_INCREMENT,
     email VARCHAR(128)
 );
+-- bob
+-- 通过版DDL示例，用于验证按提交人合并
+ALTER TABLE biz_table ADD COLUMN email VARCHAR(128) AFTER name;

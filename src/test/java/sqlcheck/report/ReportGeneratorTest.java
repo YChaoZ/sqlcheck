@@ -36,6 +36,20 @@ class ReportGeneratorTest {
     }
 
     @Test
+    void shouldHidePassedFilesWhenFiltersAreActive() throws IOException {
+        CheckResult passed = new CheckResult("passed.sql", "/tmp/passed.sql", "SQL");
+        CheckResult failed = new CheckResult("failed.sql", "/tmp/failed.sql", "SQL");
+        failed.addIssue(new CheckResult.Issue(2, "SYNTAX_ERROR", "存在语法错误", "ERROR", "DROP TABLE demo"));
+
+        Path file = Files.createTempFile("report-", ".html");
+        generator.generateHtmlReport(java.util.Arrays.asList(passed, failed), file.toString());
+
+        String html = new String(Files.readAllBytes(file), StandardCharsets.UTF_8);
+        assertTrue(html.contains("const hasActiveFilters = severities.size > 0 || types.size > 0;"));
+        assertTrue(html.contains("fileBlock.style.display = hasActiveFilters ? 'none' : 'block';"));
+    }
+
+    @Test
     void shouldWriteSourceLineTextToJsonReport() throws IOException {
         CheckResult result = new CheckResult("demo.sql", "/tmp/demo.sql", "SQL");
         result.addIssue(new CheckResult.Issue(3, "BEST_PRACTICE", "SELECT * 会查询所有字段，建议指定具体字段名", "WARNING", "SELECT *"));

@@ -164,10 +164,11 @@ public class ReportGenerator {
         writer.println("            function applyFilters() {");
         writer.println("                const severities = selectedValues('severity');");
         writer.println("                const types = selectedValues('type');");
+        writer.println("                const hasActiveFilters = severities.size > 0 || types.size > 0;");
         writer.println("                fileBlocks.forEach(function(fileBlock) {");
         writer.println("                    const issues = Array.from(fileBlock.querySelectorAll('[data-issue]')); ");
         writer.println("                    if (issues.length === 0) {");
-        writer.println("                        fileBlock.style.display = 'block'; ");
+        writer.println("                        fileBlock.style.display = hasActiveFilters ? 'none' : 'block'; ");
         writer.println("                        return; ");
         writer.println("                    }");
         writer.println("                    let visibleCount = 0;");

@@ -128,6 +128,14 @@ class SqlCheckerTest {
     }
 
     @Test
+    void shouldNotTreatInsertSelectAsMissingSemicolon() throws IOException {
+        CheckResult result = checkSql("INSERT INTO target_table (a, b)\n" +
+            "SELECT a, b FROM source_table WHERE c = '2313';\n");
+
+        assertFalse(hasIssue(result, "MISSING_SEMICOLON", null));
+    }
+
+    @Test
     void shouldReportMissingSemicolonAtEndOfFile() throws IOException {
         CheckResult result = checkSql("INSERT INTO t(id, txt) VALUES (1, 'demo')\n");
 

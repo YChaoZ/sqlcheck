@@ -161,9 +161,9 @@ public final class SqlStatementSplitter {
         for (StatementLine line : lines) {
             String trimmedAnalysis = line.getAnalysisText().trim();
             if (!trimmedAnalysis.isEmpty()) {
+                String keyword = extractLeadingKeyword(trimmedAnalysis);
                 if (nestingDepth == 0 && TOP_LEVEL_STATEMENT_START.matcher(trimmedAnalysis).find()
-                    && !isContinuationLine(trimmedAnalysis, previousMeaningfulAnalysis)) {
-                    String keyword = extractLeadingKeyword(trimmedAnalysis);
+                    && !isContinuationLine(trimmedAnalysis, previousMeaningfulAnalysis, statementStarts)) {
                     statementStarts.add(new StatementStart(keyword, line.getNumber()));
                     if (firstMeaningfulLine != 0 && line.getNumber() != firstMeaningfulLine && previousMeaningfulLine > 0) {
                         suspiciousBoundaries.add(new SuspiciousBoundary(keyword, line.getNumber(), previousMeaningfulLine));
@@ -190,12 +190,15 @@ public final class SqlStatementSplitter {
         );
     }
 
-    private static boolean isContinuationLine(String currentLine, String previousMeaningfulAnalysis) {
+    private static boolean isContinuationLine(String currentLine, String previousMeaningfulAnalysis,
+                                              List<StatementStart> statementStarts) {
         if (previousMeaningfulAnalysis == null) {
             return false;
         }
         String upperCurrent = currentLine.toUpperCase();
         String upperPrevious = previousMeaningfulAnalysis.toUpperCase();
+        String currentKeyword = extractLeadingKeyword(currentLine);
+        String rootKeyword = statementStarts.isEmpty() ? "" : statementStarts.get(0).getKeyword();
 
         if (upperCurrent.startsWith("UPDATE") && upperPrevious.contains("ON DUPLICATE KEY")) {
             return true;
@@ -204,6 +207,9 @@ public final class SqlStatementSplitter {
             return true;
         }
         if (upperCurrent.startsWith("DELETE") && upperPrevious.endsWith(" ON")) {
+            return true;
+        }
+        if ("SELECT".equals(currentKeyword) && ("INSERT".equals(rootKeyword) || "REPLACE".equals(rootKeyword))) {
             return true;
         }
         return false;

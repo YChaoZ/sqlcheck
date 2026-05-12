@@ -44,7 +44,7 @@
 <body>
     <div class="container">
         <h1>SQL/Apollo配置检查报告</h1>
-        <p class="timestamp">生成时间: 2026-04-17 21:08:27</p>
+        <p class="timestamp">生成时间: 2026-05-12 16:14:08</p>
         <div class="summary">
             <div class="stat ">
                 <div class="stat-number">9</div>
@@ -230,21 +230,22 @@
             function applyFilters() {
                 const severities = selectedValues('severity');
                 const types = selectedValues('type');
+                const hasActiveFilters = severities.size > 0 || types.size > 0;
                 fileBlocks.forEach(function(fileBlock) {
                     const issues = Array.from(fileBlock.querySelectorAll('[data-issue]')); 
                     if (issues.length === 0) {
-                        fileBlock.style.display = ''; 
+                        fileBlock.style.display = hasActiveFilters ? 'none' : 'block'; 
                         return; 
                     }
                     let visibleCount = 0;
                     issues.forEach(function(issue) {
-                        const matchesSeverity = severities.has(issue.dataset.severity);
-                        const matchesType = types.has(issue.dataset.type);
+                        const matchesSeverity = severities.size === 0 || severities.has(issue.dataset.severity);
+                        const matchesType = types.size === 0 || types.has(issue.dataset.type);
                         const visible = matchesSeverity && matchesType;
-                        issue.style.display = visible ? '' : 'none';
+                        issue.style.display = visible ? 'block' : 'none';
                         if (visible) { visibleCount++; }
                     });
-                    fileBlock.style.display = visibleCount > 0 ? '' : 'none';
+                    fileBlock.style.display = visibleCount > 0 ? 'block' : 'none';
                 });
             }
             checkboxes.forEach(function(box) { box.addEventListener('change', applyFilters); });
